@@ -20,6 +20,11 @@ class PeebleApp extends HTMLElement {
         
         // Determine app mode based on URL
         const modeInfo = window.URLParser.determineMode();
+        
+        // Debug the URL parsing
+        window.debugService.log(`🪨 Current URL: ${window.location.href}`);
+        window.debugService.log(`🪨 Hash: ${window.location.hash}`);
+        window.debugService.log(`🪨 Parsed params: ${JSON.stringify(modeInfo.params)}`);
         window.debugService.log(`🪨 App mode: ${modeInfo.mode}`);
         
         if (modeInfo.mode === 'READING' && modeInfo.params) {
@@ -41,7 +46,10 @@ class PeebleApp extends HTMLElement {
         this.currentMode = 'CREATION';
         this.updateStepIndicator(1);
         
-        window.debugService.log('📝 Initializing creation mode...');
+        window.debugService.log('📝 Initializing creation mode...', 'success');
+        
+        // Update page title to show mode
+        document.title = '🪨 Peeble - Create Message';
         
         // Check if we need to setup storage credentials
         if (!window.storageService.isConfigured()) {
@@ -65,6 +73,9 @@ class PeebleApp extends HTMLElement {
         this.updateStepIndicator(3);
         
         window.debugService.log('👂 Initializing reading mode...', 'success');
+        
+        // Update page title to show mode
+        document.title = '🪨 Peeble - Play Message';
         
         // Validate parameters
         const validation = window.URLParser.validateParams(params);
@@ -176,13 +187,13 @@ class PeebleApp extends HTMLElement {
             <div class="text-center">
                 <h2>📱 Write to NFC Tag</h2>
                 <p style="margin: 20px 0; color: #666;">
-                    Place your phone on the NFC tag to write the message URL.
+                    Write to NFC first, then upload to IPFS.
                 </p>
                 
                 <div class="nfc-status" id="writeStatus">
                     <strong>Ready to write:</strong><br>
                     <small style="font-family: monospace; word-break: break-all;">${nfcUrl}</small><br>
-                    <small>Length: ${urlInfo.length} chars ${urlInfo.fits.ntag213 ? '✅' : '❌'} NTAG213</small>
+                    <small>Tag: ${messageData.tagSerial}</small>
                 </div>
                 
                 <button class="btn" id="writeNfcBtn">
@@ -195,6 +206,9 @@ class PeebleApp extends HTMLElement {
             </div>
         `;
         
+        // Store messageData for the write operation
+        this.currentMessageData = messageData;
+        
         // Add proper event listeners with correct context
         this.setupWriteNFCHandlers(nfcUrl);
     }
@@ -204,7 +218,7 @@ class PeebleApp extends HTMLElement {
         const backBtn = this.querySelector('#backToRecordingBtn');
         
         if (writeBtn) {
-            writeBtn.addEventListener('click', () => this.writeToNFC(nfcUrl));
+            writeBtn.addEventListener('click', () => this.writeToNFC(nfcUrl, this.currentMessageData));
         }
         
         if (backBtn) {
@@ -212,7 +226,7 @@ class PeebleApp extends HTMLElement {
         }
     }
 
-    async writeToNFC(nfcUrl) {
+    async writeToNFC(nfcUrl, messageData) {
         const writeBtn = this.querySelector('#writeNfcBtn');
         const statusEl = this.querySelector('#writeStatus');
         
@@ -226,26 +240,67 @@ class PeebleApp extends HTMLElement {
             statusEl.className = 'nfc-status';
             statusEl.innerHTML = '📱 <strong>Place phone on NFC tag now...</strong>';
             
+            // Write to NFC first
             await window.nfcService.writeToTag(nfcUrl);
             
-            window.debugService.log('📱 NFC write successful!', 'success');
+            window.debugService.log('📱 NFC write successful! Now uploading to IPFS...', 'success');
             statusEl.className = 'nfc-status success';
-            statusEl.innerHTML = '✅ <strong>Write successful!</strong>';
+            statusEl.innerHTML = '✅ <strong>NFC write successful!</strong><br>📤 Uploading to IPFS...';
             
-            setTimeout(() => {
-                this.updateStepIndicator(3);
-                this.showSuccess();
-            }, 1500);
+            // Only NOW upload to IPFS after successful NFC write
+            try {
+                const ipfsHash = await window.storageService.uploadToIPFS(
+                    messageData.encryptedAudio, 
+                    messageData.messageId
+                );
+                
+                // Update message data with IPFS hash
+                messageData.ipfsHash = ipfsHash;
+                delete messageData.encryptedAudio; // Remove the binary data, keep hash
+                
+                // Save locally for testing
+                this.saveMessageLocally(messageData);
+                
+                window.debugService.log('☁️ IPFS upload successful!', 'success');
+                statusEl.innerHTML = '✅ <strong>Complete!</strong><br>📱 NFC written ✅ IPFS uploaded';
+                
+                setTimeout(() => {
+                    this.updateStepIndicator(3);
+                    this.showSuccess();
+                }, 1500);
+                
+            } catch (uploadError) {
+                window.debugService.log(`☁️ IPFS upload failed: ${uploadError.message}`, 'error');
+                statusEl.className = 'nfc-status warning';
+                statusEl.innerHTML = '⚠️ <strong>NFC written but upload failed</strong><br>Message works locally only';
+                
+                // Still save locally even if upload fails
+                messageData.ipfsHash = 'local-only';
+                delete messageData.encryptedAudio;
+                this.saveMessageLocally(messageData);
+                
+                setTimeout(() => {
+                    this.updateStepIndicator(3);
+                    this.showSuccess();
+                }, 2000);
+            }
             
         } catch (error) {
             window.debugService.log(`📱 NFC write failed: ${error.message}`, 'error');
             
             statusEl.className = 'nfc-status error';
-            statusEl.innerHTML = `❌ <strong>Write failed:</strong> ${error.message}`;
+            statusEl.innerHTML = `❌ <strong>NFC write failed:</strong> ${error.message}<br><small>💡 Try holding phone closer to tag</small>`;
             
             writeBtn.disabled = false;
             writeBtn.textContent = '🔄 Try Again';
         }
+    }
+
+    saveMessageLocally(messageData) {
+        const savedMessages = JSON.parse(localStorage.getItem('peebleMessages') || '[]');
+        savedMessages.push(messageData);
+        localStorage.setItem('peebleMessages', JSON.stringify(savedMessages));
+        window.debugService.log('💾 Message saved locally for testing');
     }
 
     showSuccess() {

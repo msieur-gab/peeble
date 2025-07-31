@@ -328,6 +328,11 @@
                 window.debugService.log('✅ NFC writing supported', 'success');
             }
             
+            // Test URL parsing with encoded colons
+            const testUrl = 'https://example.com/#serial=04%3A93%3A57%3A5A%3A5E%3A1D%3A90&messageId=PBL-TEST&timestamp=123456';
+            const parsed = window.URLParser.extractFromUrl(testUrl);
+            window.debugService.log(`🧪 URL parsing test: ${JSON.stringify(parsed)}`);
+            
             window.debugService.log('📱 Ready to test with real NFC tags!', 'success');
         });
     </script>

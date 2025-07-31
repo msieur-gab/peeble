@@ -119,17 +119,31 @@ class NFCService {
         try {
             window.debugService.log(`📱 Writing to NFC tag: ${url}`, 'nfc');
             
+            if (!('NDEFWriter' in window)) {
+                throw new Error('NDEFWriter not supported on this device/browser');
+            }
+            
             const writer = new NDEFWriter();
-            await writer.write({
-                records: [{ recordType: "url", data: url }]
-            });
+            
+            // Try writing with just the URL
+            await writer.write(url);
             
             window.debugService.log('📱 NFC write successful!', 'success');
             return true;
             
         } catch (error) {
-            window.debugService.log(`📱 NFC write failed: ${error.message}`, 'error');
-            throw error;
+            window.debugService.log(`📱 NFC write failed: ${error.name} - ${error.message}`, 'error');
+            
+            // Try to give more helpful error messages
+            if (error.name === 'NotAllowedError') {
+                throw new Error('NFC permission denied');
+            } else if (error.name === 'NetworkError') {
+                throw new Error('Could not reach NFC tag - hold phone closer');
+            } else if (error.name === 'NotSupportedError') {
+                throw new Error('NFC writing not supported on this device');
+            } else {
+                throw new Error(error.message || 'NFC write failed');
+            }
         }
     }
 

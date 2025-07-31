@@ -285,7 +285,7 @@ class VoiceRecorder extends HTMLElement {
             const messageId = window.encryptionService.generateMessageId();
             const timestamp = Date.now();
             
-            window.debugService.log(`💾 Saving message: ${messageId} for tag ${this.tagSerial}`);
+            window.debugService.log(`💾 Preparing message: ${messageId} for tag ${this.tagSerial}`);
             
             // Update UI
             saveButton.textContent = '🔐 Encrypting...';
@@ -300,38 +300,31 @@ class VoiceRecorder extends HTMLElement {
             // Encrypt transcript for local storage
             const encryptedTranscript = await window.encryptionService.encryptToBase64(transcript, encryptionKey);
             
-            // Upload to IPFS
-            saveButton.textContent = '☁️ Uploading...';
-            const ipfsHash = await window.storageService.uploadToIPFS(encryptedAudio, messageId);
-            
-            // Create message data with ACTUAL tag serial
+            // Create message data with ACTUAL tag serial (but don't upload yet)
             const messageData = {
                 messageId,
-                tagSerial: this.tagSerial, // Use actual serial instead of random UUID
+                tagSerial: this.tagSerial,
                 timestamp,
-                ipfsHash,
+                encryptedAudio, // Keep encrypted data for upload after NFC write
                 encryptedTranscript,
                 duration: this.recordingData.duration,
                 originalTranscript: transcript,
                 created: new Date().toISOString()
             };
             
-            // Save locally (for testing purposes)
-            this.saveMessageLocally(messageData);
-            
             // Create NFC URL using actual tag serial
             const nfcUrl = window.URLParser.createNfcUrl(messageData);
             
-            // Emit event to parent component
+            window.debugService.log('💾 Message prepared - ready for NFC write', 'success');
+            
+            // Emit event to parent component for NFC writing FIRST
             this.dispatchEvent(new CustomEvent('message-created', {
                 detail: { messageData, nfcUrl }
             }));
             
-            window.debugService.log('💾 Message saved successfully with tag serial!', 'success');
-            
         } catch (error) {
-            window.debugService.log(`💾 Save failed: ${error.message}`, 'error');
-            this.showError(`Save failed: ${error.message}`);
+            window.debugService.log(`💾 Preparation failed: ${error.message}`, 'error');
+            this.showError(`Failed to prepare message: ${error.message}`);
             
             saveButton.textContent = originalText;
             saveButton.disabled = false;

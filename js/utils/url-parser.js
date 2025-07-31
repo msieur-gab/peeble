@@ -6,8 +6,12 @@ class URLParser {
         const hash = window.location.hash.substring(1);
         const params = new URLSearchParams(hash);
         
+        // Decode URL-encoded values (like %3A back to :)
+        const serial = params.get('serial');
+        const decodedSerial = serial ? decodeURIComponent(serial) : null;
+        
         return {
-            serial: params.get('serial'), // Use actual tag serial instead of random UUID
+            serial: decodedSerial,
             messageId: params.get('messageId'),
             timestamp: params.get('timestamp')
         };
@@ -67,19 +71,6 @@ class URLParser {
         };
     }
 
-    // Extract domain for short URLs (future use)
-    static getShortDomain() {
-        const hostname = window.location.hostname;
-        
-        // For localhost development
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return hostname + (window.location.port ? ':' + window.location.port : '');
-        }
-        
-        // For production, could implement pbl.me or similar
-        return hostname;
-    }
-
     // Calculate URL length for NFC optimization
     static calculateUrlLength(messageData) {
         const url = this.createNfcUrl(messageData);
@@ -115,11 +106,12 @@ class URLParser {
     static isPeebleUrl(url) {
         try {
             const urlObj = new URL(url);
-            const params = new URLSearchParams(urlObj.hash.substring(1));
+            const hash = urlObj.hash.substring(1);
             
-            return !!(params.get('serial') && 
-                     params.get('messageId') && 
-                     params.get('timestamp'));
+            // Check if hash contains our parameters
+            return hash.includes('serial=') && 
+                   hash.includes('messageId=') && 
+                   hash.includes('timestamp=');
         } catch {
             return false;
         }
@@ -132,8 +124,12 @@ class URLParser {
             const hash = urlObj.hash.substring(1);
             const params = new URLSearchParams(hash);
             
+            // Decode URL-encoded values
+            const serial = params.get('serial');
+            const decodedSerial = serial ? decodeURIComponent(serial) : null;
+            
             return {
-                serial: params.get('serial'),
+                serial: decodedSerial,
                 messageId: params.get('messageId'),
                 timestamp: params.get('timestamp')
             };
