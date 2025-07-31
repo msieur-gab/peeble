@@ -134,7 +134,8 @@ class PeebleApp extends HTMLElement {
      * @private
      */
     switchToCreatorMode(serial = null) {
-        if (this.currentMode === 'CREATOR') {
+        // This is the key change: Only prevent re-rendering if a null serial is passed.
+        if (this.currentMode === 'CREATOR' && serial === null) {
             debugLog('Already in Creator Mode. No change needed.', 'info');
             return;
         }

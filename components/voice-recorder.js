@@ -9,6 +9,11 @@ import { debugLog, generateMessageId, URLParser } from '../services/utils.js';
  * Web Component for the voice message recording and creation interface.
  */
 class VoiceRecorder extends HTMLElement {
+    // This is a key change: Tell the component to observe the 'serial' attribute.
+    static get observedAttributes() {
+        return ['serial'];
+    }
+
     constructor() {
         super();
         this.attachShadow({ mode: 'open' });
@@ -41,34 +46,38 @@ class VoiceRecorder extends HTMLElement {
         this.render();
         this.setupEventListeners();
     }
-
-    static get observedAttributes() {
-        return ['serial'];
-    }
     
-    /**
-     * Lifecycle callback to handle when the component is inserted into the DOM.
-     */
-    connectedCallback() {
-        debugLog('VoiceRecorder connected. Checking for existing serial...');
-        if (this.tagSerial) {
-            this.showStatus('Tag scanned. You can now record your message.', 'success');
+    // This is the missing callback that handles attribute changes.
+    attributeChangedCallback(name, oldValue, newValue) {
+        if (name === 'serial' && oldValue !== newValue) {
+            this.tagSerial = newValue;
+            this.handleSerialSet(newValue);
+            debugLog(`Attribute 'serial' changed from ${oldValue} to ${newValue}`);
         }
     }
     
     /**
- * Handles serial being set (replaces event-based approach)
- * @param {string} serial - The NFC tag serial
- */
-handleSerialSet(serial) {
-    this.tagSerial = serial;
-    debugLog(`VoiceRecorder received serial directly: ${this.tagSerial}`);
-    if (!this.tagSerial) {
-        this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
-    } else {
-        this.showStatus('Tag scanned. You can now record your message.', 'success');
+     * Lifecycle callback to handle when the component is inserted into the DOM.
+     * This can now be simplified as the attribute handler does the heavy lifting.
+     */
+    connectedCallback() {
+        debugLog('VoiceRecorder connected.');
+        // The attributeChangedCallback handles setting the status message.
     }
-}
+    
+    /**
+     * Handles serial being set (replaces event-based approach)
+     * @param {string} serial - The NFC tag serial
+     */
+    handleSerialSet(serial) {
+        this.tagSerial = serial;
+        debugLog(`VoiceRecorder received serial directly: ${this.tagSerial}`);
+        if (!this.tagSerial) {
+            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
+        } else {
+            this.showStatus('Tag scanned. You can now record your message.', 'success');
+        }
+    }
     
     /**
      * Sets the StorageService instance. Called from the parent component (peeble-app).
@@ -135,7 +144,6 @@ handleSerialSet(serial) {
                 .audio-player audio { width: 100%; margin: 10px 0; }
             </style>
             <div class="voice-recorder-container">
-                <!-- Step 1: Recording -->
                 <div class="step active" id="recording">
                     <div class="text-center">
                         <h2>Record Your Voice Message</h2>
@@ -151,7 +159,6 @@ handleSerialSet(serial) {
                     </div>
                 </div>
 
-                <!-- Step 2: Edit & Save -->
                 <div class="step" id="editing">
                     <h2>Review & Edit Transcript</h2>
                     
@@ -170,7 +177,6 @@ handleSerialSet(serial) {
                     <button class="btn btn-secondary" id="retryBtn">Record Again</button>
                 </div>
 
-                <!-- Step 3: Success -->
                 <div class="step" id="success">
                     <div class="success" style="text-align: center; padding: 20px;">
                         <h2>✅ Message Saved & Tag Ready!</h2>
@@ -226,14 +232,6 @@ handleSerialSet(serial) {
     }
 
 
-    attributeChangedCallback(name, oldValue, newValue) {
-        if (name === 'serial' && oldValue !== newValue) {
-            this.tagSerial = newValue;
-            this.handleSerialSet(newValue);
-            debugLog(`Attribute 'serial' changed from ${oldValue} to ${newValue}`);
-        }
-    }
-    
     /**
      * Displays a specific step in the recording workflow.
      * @param {string} stepId - The ID of the step to display ('recording', 'editing', 'success').
