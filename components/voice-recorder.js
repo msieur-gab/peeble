@@ -37,7 +37,6 @@ class VoiceRecorder extends HTMLElement {
         this.audioService.onError = this.handleAudioServiceError;
         
         // Listen for the custom event from the parent component
-        window.addEventListener('set-serial', this.handleSetSerial.bind(this));
 
         this.render();
         this.setupEventListeners();
@@ -47,22 +46,25 @@ class VoiceRecorder extends HTMLElement {
      * Lifecycle callback to handle when the component is inserted into the DOM.
      */
     connectedCallback() {
-        debugLog('VoiceRecorder connected. Waiting for serial from parent.');
-    }
-    
-    /**
-     * Handles the 'set-serial' custom event.
-     * @param {CustomEvent} event - The custom event containing the serial number.
-     */
-    handleSetSerial(event) {
-        this.tagSerial = event.detail.serial;
-        debugLog(`VoiceRecorder received serial via event: ${this.tagSerial}.`);
-        if (!this.tagSerial) {
-            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
-        } else {
+        debugLog('VoiceRecorder connected. Checking for existing serial...');
+        if (this.tagSerial) {
             this.showStatus('Tag scanned. You can now record your message.', 'success');
         }
     }
+    
+    /**
+ * Handles serial being set (replaces event-based approach)
+ * @param {string} serial - The NFC tag serial
+ */
+handleSerialSet(serial) {
+    this.tagSerial = serial;
+    debugLog(`VoiceRecorder received serial directly: ${this.tagSerial}`);
+    if (!this.tagSerial) {
+        this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
+    } else {
+        this.showStatus('Tag scanned. You can now record your message.', 'success');
+    }
+}
     
     /**
      * Sets the StorageService instance. Called from the parent component (peeble-app).

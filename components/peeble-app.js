@@ -141,11 +141,16 @@ class PeebleApp extends HTMLElement {
         debugLog(`Switching to Creator Mode. Serial: ${serial}`);
         this.appContent.innerHTML = `<voice-recorder></voice-recorder>`;
         
-        // Wait for the next tick to ensure the component is in the DOM
-        setTimeout(() => {
-            // Dispatch a custom event with the serial number
-            window.dispatchEvent(new CustomEvent('set-serial', { detail: { serial: serial } }));
-        }, 0);
+        // FIXED: Directly set the serial on the component instead of using events
+        if (serial) {
+            const voiceRecorder = this.appContent.querySelector('voice-recorder');
+            if (voiceRecorder) {
+                // Set the serial directly on the component
+                voiceRecorder.tagSerial = serial;
+                voiceRecorder.handleSerialSet(serial); // Call the handler directly
+                debugLog(`Serial ${serial} set directly on voice-recorder`);
+            }
+        }
         
         this.currentMode = 'CREATOR';
         this.showStatus('Ready to create a new Peeble message.', 'info');
