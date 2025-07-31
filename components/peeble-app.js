@@ -139,14 +139,14 @@ class PeebleApp extends HTMLElement {
             return;
         }
         debugLog(`Switching to Creator Mode. Serial: ${serial}`);
-        // Render the component without the attribute to prevent timing issues
         this.appContent.innerHTML = `<voice-recorder></voice-recorder>`;
-        const voiceRecorder = this.appContent.querySelector('voice-recorder');
-        if (voiceRecorder) {
-            voiceRecorder.setStorageService(this.storageService);
-            // Pass the serial number directly to a method
-            voiceRecorder.setSerial(serial);
-        }
+        
+        // Wait for the next tick to ensure the component is in the DOM
+        setTimeout(() => {
+            // Dispatch a custom event with the serial number
+            window.dispatchEvent(new CustomEvent('set-serial', { detail: { serial: serial } }));
+        }, 0);
+        
         this.currentMode = 'CREATOR';
         this.showStatus('Ready to create a new Peeble message.', 'info');
     }

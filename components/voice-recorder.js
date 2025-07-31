@@ -35,6 +35,9 @@ class VoiceRecorder extends HTMLElement {
         this.audioService.onRecordingStop = this.handleRecordingStop;
         this.audioService.onTranscriptUpdate = this.handleTranscriptUpdate;
         this.audioService.onError = this.handleAudioServiceError;
+        
+        // Listen for the custom event from the parent component
+        window.addEventListener('set-serial', this.handleSetSerial.bind(this));
 
         this.render();
         this.setupEventListeners();
@@ -45,7 +48,20 @@ class VoiceRecorder extends HTMLElement {
      */
     connectedCallback() {
         debugLog('VoiceRecorder connected. Waiting for serial from parent.');
-        // Initial status is handled by the parent calling setSerial.
+    }
+    
+    /**
+     * Handles the 'set-serial' custom event.
+     * @param {CustomEvent} event - The custom event containing the serial number.
+     */
+    handleSetSerial(event) {
+        this.tagSerial = event.detail.serial;
+        debugLog(`VoiceRecorder received serial via event: ${this.tagSerial}.`);
+        if (!this.tagSerial) {
+            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
+        } else {
+            this.showStatus('Tag scanned. You can now record your message.', 'success');
+        }
     }
     
     /**
@@ -54,20 +70,6 @@ class VoiceRecorder extends HTMLElement {
      */
     setStorageService(service) {
         this.storageService = service;
-    }
-    
-    /**
-     * Sets the NFC tag serial number. Called by the parent component.
-     * @param {string} serial - The NFC tag's serial number.
-     */
-    setSerial(serial) {
-        this.tagSerial = serial;
-        debugLog(`VoiceRecorder received serial: ${this.tagSerial}.`);
-        if (!this.tagSerial) {
-            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
-        } else {
-            this.showStatus('Tag scanned. You can now record your message.', 'success');
-        }
     }
 
     /**
