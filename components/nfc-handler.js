@@ -70,6 +70,9 @@ class NFCHandler extends HTMLElement {
             serialDisplay.style.display = 'block';
         }
 
+        debugLog(`NFC tag scanned. Serial returned from API: ${data.serial}`, data.serial ? 'success' : 'warning');
+
+
         if (this.writeUrlQueue) {
             debugLog(`NFC tag scanned while in write mode. Attempting to write URL: ${this.writeUrlQueue}`);
             this.writeToNfcTag(this.writeUrlQueue);
