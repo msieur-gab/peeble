@@ -322,8 +322,31 @@
             // Check NFC support
             if ('NDEFReader' in window) {
                 window.debugService.log('✅ NFC supported - ready for real tags!', 'success');
+                
+                // Also check if NDEFWriter is available
+                if ('NDEFWriter' in window) {
+                    window.debugService.log('✅ NFC writing supported', 'success');
+                } else {
+                    window.debugService.log('❌ NFC writing not supported', 'error');
+                }
             } else {
                 window.debugService.log('⚠️ NFC not supported - check Chrome flags', 'warning');
+                window.debugService.log('Enable: chrome://flags/#enable-experimental-web-platform-features', 'warning');
+            }
+            
+            // Check HTTPS requirement
+            if (location.protocol === 'https:') {
+                window.debugService.log('✅ HTTPS connection - NFC will work', 'success');
+            } else {
+                window.debugService.log('❌ HTTP connection - NFC requires HTTPS', 'error');
+            }
+            
+            // Check user agent for compatibility
+            const isAndroidChrome = /Android.*Chrome/.test(navigator.userAgent);
+            if (isAndroidChrome) {
+                window.debugService.log('✅ Android Chrome detected - optimal for NFC', 'success');
+            } else {
+                window.debugService.log('⚠️ Not Android Chrome - NFC support may be limited', 'warning');
             }
         });
     </script>

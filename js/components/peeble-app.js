@@ -100,12 +100,18 @@ class PeebleApp extends HTMLElement {
                     <input type="text" id="setupApiKey" placeholder="API Key" style="width: 100%; margin: 5px 0; padding: 10px; border: 1px solid #ddd; border-radius: 8px;">
                     <input type="password" id="setupSecret" placeholder="Secret" style="width: 100%; margin: 5px 0; padding: 10px; border: 1px solid #ddd; border-radius: 8px;">
                 </div>
-                <button class="btn" onclick="this.parentElement.parentElement.saveAndContinue()">Save & Continue</button>
+                <button class="btn" id="saveCredentialsBtn">Save & Continue</button>
                 <p style="font-size: 0.8em; margin-top: 10px; opacity: 0.7;">
                     Get free credentials at <a href="https://pinata.cloud" target="_blank">pinata.cloud</a>
                 </p>
             </div>
         `;
+        
+        // Add proper event listener
+        const saveBtn = this.querySelector('#saveCredentialsBtn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.saveAndContinue());
+        }
     }
 
     async saveAndContinue() {
@@ -173,34 +179,101 @@ class PeebleApp extends HTMLElement {
                     Place your phone on the NFC tag to write the message URL.
                 </p>
                 
-                <div class="nfc-status">
+                <div class="nfc-status" id="writeStatus">
                     <strong>Ready to write:</strong><br>
                     <small style="font-family: monospace; word-break: break-all;">${nfcUrl}</small><br>
                     <small>Length: ${urlInfo.length} chars ${urlInfo.fits.ntag213 ? '✅' : '❌'} NTAG213</small>
                 </div>
                 
-                <button class="btn" onclick="this.parentElement.writeToNFC('${nfcUrl}')">
+                <button class="btn" id="writeNfcBtn">
                     📱 Write to NFC Tag
                 </button>
                 
-                <button class="btn btn-secondary" onclick="this.parentElement.backToCreation()">
+                <button class="btn btn-secondary" id="backToRecordingBtn">
                     ← Back to Recording
                 </button>
             </div>
         `;
+        
+        // Add proper event listeners with correct context
+        this.setupWriteNFCHandlers(nfcUrl);
+    }
+
+    setupWriteNFCHandlers(nfcUrl) {
+        const writeBtn = this.querySelector('#writeNfcBtn');
+        const backBtn = this.querySelector('#backToRecordingBtn');
+        
+        if (writeBtn) {
+            writeBtn.addEventListener('click', () => this.writeToNFC(nfcUrl));
+        }
+        
+        if (backBtn) {
+            backBtn.addEventListener('click', () => this.backToCreation());
+        }
     }
 
     async writeToNFC(nfcUrl) {
+        const writeBtn = this.querySelector('#writeNfcBtn');
+        const statusEl = this.querySelector('#writeStatus');
+        
+        if (!writeBtn || !statusEl) return;
+        
+        const originalText = writeBtn.textContent;
+        writeBtn.disabled = true;
+        writeBtn.textContent = '📱 Preparing...';
+        
         try {
-            this.showNFCStatus('📱 Place phone on NFC tag now...', 'info');
+            window.debugService.log(`📱 Attempting to write URL: ${nfcUrl}`, 'nfc');
             
-            await window.nfcService.writeToTag(nfcUrl);
+            // Check NFC permissions first
+            const permission = await window.nfcService.checkPermissions();
+            window.debugService.log(`📱 NFC permission status: ${permission}`, 'nfc');
             
-            this.updateStepIndicator(3);
-            this.showSuccess();
+            statusEl.className = 'nfc-status';
+            statusEl.innerHTML = '📱 <strong>Place phone on NFC tag now...</strong><br>Keep steady until write completes';
+            
+            // Add timeout for write operation
+            const writePromise = window.nfcService.writeToTag(nfcUrl);
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Write timeout - try holding phone closer to tag')), 15000)
+            );
+            
+            await Promise.race([writePromise, timeoutPromise]);
+            
+            window.debugService.log('📱 NFC write successful!', 'success');
+            statusEl.className = 'nfc-status success';
+            statusEl.innerHTML = '✅ <strong>Write successful!</strong><br>NFC tag now contains your Peeble message';
+            
+            // Wait a moment then show success
+            setTimeout(() => {
+                this.updateStepIndicator(3);
+                this.showSuccess();
+            }, 2000);
             
         } catch (error) {
-            this.showNFCStatus(`Write failed: ${error.message}`, 'error');
+            window.debugService.log(`📱 NFC write failed: ${error.message}`, 'error');
+            
+            statusEl.className = 'nfc-status error';
+            
+            // Provide specific error guidance
+            let errorMessage = error.message;
+            let suggestion = '';
+            
+            if (error.message.includes('timeout')) {
+                suggestion = '<br><small>💡 Try holding your phone closer to the NFC tag</small>';
+            } else if (error.message.includes('NotAllowedError') || error.message.includes('permission denied')) {
+                suggestion = '<br><small>💡 NFC permission denied. Check browser settings</small>';
+            } else if (error.message.includes('NetworkError') || error.message.includes('Could not connect')) {
+                suggestion = '<br><small>💡 NFC tag may be too far away or incompatible</small>';
+            } else if (error.message.includes('NotSupportedError') || error.message.includes('not supported')) {
+                suggestion = '<br><small>💡 NFC writing not supported. Check Chrome flags</small>';
+            }
+            
+            statusEl.innerHTML = `❌ <strong>Write failed:</strong> ${errorMessage}${suggestion}`;
+            
+            // Re-enable button for retry
+            writeBtn.disabled = false;
+            writeBtn.textContent = '🔄 Try Again';
         }
     }
 
@@ -219,19 +292,29 @@ class PeebleApp extends HTMLElement {
                     ✅ Ready to share your Peeble stone
                 </div>
                 
-                <button class="btn" onclick="this.parentElement.createAnother()">
+                <button class="btn" id="createAnotherBtn">
                     Create Another Peeble
                 </button>
             </div>
         `;
+        
+        // Add proper event listener
+        const createBtn = this.querySelector('#createAnotherBtn');
+        if (createBtn) {
+            createBtn.addEventListener('click', () => this.createAnother());
+        }
     }
 
     backToCreation() {
+        window.debugService.log('🔄 Returning to creation mode...');
+        window.nfcService.stopScanning(); // Stop any active scanning
         this.initCreationMode();
     }
 
     createAnother() {
+        window.debugService.log('🔄 Creating another Peeble...');
         window.URLParser.clearParams();
+        window.nfcService.stopScanning(); // Stop any active scanning
         this.initCreationMode();
     }
 
@@ -240,11 +323,19 @@ class PeebleApp extends HTMLElement {
             <div class="nfc-status error">
                 <h3>❌ Error</h3>
                 <p>${message}</p>
-                <button class="btn" onclick="location.href = '${window.URLParser.getBaseUrl()}'">
+                <button class="btn" id="startOverBtn">
                     Start Over
                 </button>
             </div>
         `;
+        
+        // Add proper event listener
+        const startBtn = this.querySelector('#startOverBtn');
+        if (startBtn) {
+            startBtn.addEventListener('click', () => {
+                window.location.href = window.URLParser.getBaseUrl();
+            });
+        }
     }
 
     showNFCStatus(message, type = 'info') {
