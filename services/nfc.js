@@ -17,10 +17,15 @@ export class NFCService {
 
     /**
      * Checks if Web NFC API is supported in the current browser.
-     * @returns {boolean} True if supported, false otherwise.
+     * @returns {{read: boolean, write: boolean, legacyWrite: boolean}} - An object with read, new write, and legacy write support status.
      */
     isSupported() {
-        return 'NDEFReader' in window;
+        return {
+            read: 'NDEFReader' in window,
+            write: 'NDEFWriter' in window,
+            // Check for legacy NDEFReader.write() method
+            legacyWrite: 'NDEFReader' in window && typeof NDEFReader.prototype.write === 'function'
+        };
     }
 
     /**
@@ -28,9 +33,10 @@ export class NFCService {
      * @returns {Promise<void>}
      */
     async startScanning() {
-        if (!this.isSupported()) {
-            debugLog('Web NFC API not supported in this browser.', 'error');
-            this.onNfcError('NFC not supported on this device.');
+        const support = this.isSupported();
+        if (!support.read) {
+            debugLog('Web NFC API (reading) not supported in this browser.', 'error');
+            this.onNfcError('NFC reading not supported on this device.');
             return;
         }
         if (this.isScanning) {
@@ -94,20 +100,28 @@ export class NFCService {
      * @returns {Promise<void>}
      */
     async writeUrl(url) {
-        if (!this.isSupported()) {
-            debugLog('Web NFC API not supported for writing.', 'error');
-            throw new Error('NFC writing not supported on this device.');
+        const support = this.isSupported();
+        if (!support.write && !support.legacyWrite) {
+            debugLog('Web NFC API (writing) not supported.', 'error');
+            throw new Error('NFC writing is not supported on this device.');
         }
 
         debugLog(`Attempting to write URL to NFC tag: ${url}`);
         try {
-            this.ndefWriter = new NDEFWriter();
-            await this.ndefWriter.write({
-                records: [{ recordType: "url", data: url }]
-            }, {
-                // Do not set `overwrite: true` or `ignoreRead: true` for blank tags
-                // This is a simple write. Locking is typically a separate step or option.
-            });
+            // Prefer the modern NDEFWriter if available
+            if (support.write) {
+                this.ndefWriter = new NDEFWriter();
+                await this.ndefWriter.write({
+                    records: [{ recordType: "url", data: url }]
+                });
+            } else if (support.legacyWrite && this.ndefReader) {
+                // Fallback to the legacy NDEFReader.write() method
+                await this.ndefReader.write({
+                    records: [{ recordType: "url", data: url }]
+                });
+            } else {
+                throw new Error('No supported NFC writing interface available.');
+            }
             debugLog('URL successfully written to NFC tag (without locking).', 'success');
         } catch (error) {
             debugLog(`Error writing to NFC tag: ${error.message}`, 'error');

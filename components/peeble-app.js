@@ -1,6 +1,6 @@
 // components/peeble-app.js
 
-import { URLParser, debugLog, showStatus } from '../services/utils.js';
+import { URLParser, debugLog } from '../services/utils.js';
 import { StorageService } from '../services/storage.js'; // Import StorageService
 // Import components so they are defined
 import './voice-recorder.js';
@@ -52,13 +52,49 @@ class PeebleApp extends HTMLElement {
                     align-items: center;
                     flex-direction: column;
                 }
+                .status-container {
+                    width: 100%;
+                    padding: 0 20px;
+                    margin-bottom: 20px;
+                }
             </style>
-            <div class="app-content" id="appContent">
-                <p style="color: var(--secondary-color);">Loading Peeble app...</p>
+            <div class="app-content-wrapper">
+                <div class="status-container">
+                    <div id="status" class="status">Loading Peeble app...</div>
+                </div>
+                <div class="app-content" id="appContent">
+                </div>
             </div>
         `;
         this.appContent = this.shadowRoot.getElementById('appContent');
+        this.statusDiv = this.shadowRoot.getElementById('status');
     }
+    
+    /**
+     * Displays a status message to the user.
+     * @param {string} message - The message to display.
+     * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
+     * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
+     */
+    showStatus(message, type = 'info', duration = 5000) {
+        if (this.statusDiv) {
+            this.statusDiv.textContent = message;
+            this.statusDiv.className = `status ${type}`; // Apply CSS class for styling
+
+            if (duration > 0) {
+                setTimeout(() => {
+                    // Only clear if the current message is still the one we set
+                    if (this.statusDiv.textContent === message) {
+                        this.statusDiv.className = 'status'; // Reset to default style
+                        this.statusDiv.textContent = 'Ready for action'; // Default message
+                    }
+                }, duration);
+            }
+        } else {
+            debugLog(`Status display element not found inside PeebleApp.`, 'warning');
+        }
+    }
+
 
     /**
      * Sets up event listeners for mode changes.
@@ -108,7 +144,7 @@ class PeebleApp extends HTMLElement {
             voiceRecorder.setStorageService(this.storageService);
         }
         this.currentMode = 'CREATOR';
-        showStatus('Ready to create a new Peeble message.', 'info');
+        this.showStatus('Ready to create a new Peeble message.', 'info');
     }
 
     /**
@@ -142,7 +178,7 @@ class PeebleApp extends HTMLElement {
             messagePlayer.setStorageService(this.storageService);
         }
         this.currentMode = 'READER';
-        showStatus('Loading your Peeble message...', 'info');
+        this.showStatus('Loading your Peeble message...', 'info');
     }
 }
 

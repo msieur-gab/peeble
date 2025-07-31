@@ -1,6 +1,6 @@
 // main.js
 
-import { debugLog, showStatus } from './services/utils.js';
+import { debugLog } from './services/utils.js';
 import { StorageService } from './services/storage.js';
 
 // Import all components to ensure they are registered
@@ -26,7 +26,7 @@ window.testPinataConnection = async function() {
     const secret = secretInput.value.trim();
 
     if (!apiKey || !secret) {
-        showStatus('Please enter both Pinata API key and secret.', 'error');
+        // The individual components will now handle their own status display
         debugLog('Pinata credentials missing.', 'error');
         return;
     }
@@ -43,7 +43,7 @@ window.testPinataConnection = async function() {
             localStorage.setItem('pinataApiKey', apiKey);
             localStorage.setItem('pinataSecret', secret);
             document.getElementById('apiSetup').style.display = 'none'; // Hide setup on success
-            showStatus('Pinata connection successful!', 'success');
+            debugLog('Pinata connection successful!', 'success');
             debugLog('Pinata credentials saved and connection verified.', 'success');
             
             // Re-initialize the PeebleApp now that StorageService is ready
@@ -52,11 +52,9 @@ window.testPinataConnection = async function() {
                 peebleApp.setStorageService(storageService);
             }
         } else {
-            showStatus('Pinata connection failed. Check credentials.', 'error');
             debugLog('Pinata connection failed during test.', 'error');
         }
     } catch (error) {
-        showStatus(`Pinata test error: ${error.message}`, 'error');
         debugLog(`Pinata test error: ${error.message}`, 'error');
     } finally {
         testButton.textContent = originalButtonText;
@@ -122,5 +120,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     debugLog('Peeble App initialization complete.');
-    showStatus('Peeble app loaded. Configure Pinata API if needed.', 'info');
 });

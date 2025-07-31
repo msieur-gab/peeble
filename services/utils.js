@@ -22,32 +22,6 @@ export function debugLog(message, type = 'info') {
 }
 
 /**
- * Displays a status message to the user.
- * @param {string} message - The message to display.
- * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
- * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
- */
-export function showStatus(message, type = 'info', duration = 5000) {
-    const statusDiv = document.getElementById('status');
-    if (statusDiv) {
-        statusDiv.textContent = message;
-        statusDiv.className = `status ${type}`; // Apply CSS class for styling
-
-        if (duration > 0) {
-            setTimeout(() => {
-                // Only clear if the current message is still the one we set
-                if (statusDiv.textContent === message) {
-                    statusDiv.className = 'status'; // Reset to default style
-                    statusDiv.textContent = 'Ready for action'; // Default message
-                }
-            }, duration);
-        }
-    } else {
-        debugLog(`Status display element not found. Message: ${message}`, 'warning');
-    }
-}
-
-/**
  * Generates a unique message ID.
  * @returns {string} A unique message ID (e.g., PBL-ABC123XYZ).
  */

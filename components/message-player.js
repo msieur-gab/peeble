@@ -2,7 +2,7 @@
 
 import { EncryptionService } from '../services/encryption.js';
 import { StorageService } from '../services/storage.js';
-import { debugLog, showStatus } from '../services/utils.js';
+import { debugLog } from '../services/utils.js';
 
 /**
  * Web Component for playing back encrypted voice messages.
@@ -20,6 +20,7 @@ class MessagePlayer extends HTMLElement {
         this.encryptionService = new EncryptionService();
         this.storageService = null; // Will be set by parent component
         this.currentAudio = null; // Reference to the audio element
+        this.statusDiv = null;
 
         this.render();
         this.setupEventListeners();
@@ -83,8 +84,10 @@ class MessagePlayer extends HTMLElement {
                     line-height: 1.4;
                 }
                 audio { width: 100%; margin: 10px 0; }
+                .status { margin-bottom: 10px; }
             </style>
             <div class="message-player-container">
+                <div class="status" id="status"></div>
                 <h2>🎧 Playing Your Peeble Message</h2>
                 <div class="playback-controls">
                     <button class="play-button" id="playButton">▶️</button>
@@ -98,6 +101,31 @@ class MessagePlayer extends HTMLElement {
                 <button class="btn btn-secondary" id="closePlayerBtn">Close Player</button>
             </div>
         `;
+        this.statusDiv = this.shadowRoot.getElementById('status');
+    }
+
+    /**
+     * Displays a status message to the user.
+     * @param {string} message - The message to display.
+     * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
+     * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
+     */
+    showStatus(message, type = 'info', duration = 5000) {
+        if (this.statusDiv) {
+            this.statusDiv.textContent = message;
+            this.statusDiv.className = `status ${type}`;
+
+            if (duration > 0) {
+                setTimeout(() => {
+                    if (this.statusDiv.textContent === message) {
+                        this.statusDiv.className = 'status';
+                        this.statusDiv.textContent = '';
+                    }
+                }, duration);
+            }
+        } else {
+            debugLog(`Status display element not found in message-player.`, 'warning');
+        }
     }
 
     /**
@@ -152,20 +180,20 @@ class MessagePlayer extends HTMLElement {
         const timestamp = parseInt(this.getAttribute('timestamp'), 10);
 
         if (!uuid || !messageId || isNaN(timestamp)) {
-            showStatus('Missing or invalid message parameters.', 'error');
+            this.showStatus('Missing or invalid message parameters.', 'error');
             debugLog('Missing or invalid message parameters for playback.', 'error');
             return;
         }
 
         if (!this.storageService || (!this.storageService.apiKey || !this.storageService.secret)) {
-            showStatus('Pinata API credentials are not set. Cannot play message.', 'error');
+            this.showStatus('Pinata API credentials are not set. Cannot play message.', 'error');
             debugLog('StorageService not initialized or missing credentials.', 'error');
             return;
         }
 
         this.shadowRoot.getElementById('playingTitle').textContent = `Peeble ${messageId}`;
         this.shadowRoot.getElementById('playingInfo').textContent = 'Downloading from IPFS...';
-        showStatus('Downloading message...', 'info', 0); // Keep status visible
+        this.showStatus('Downloading message...', 'info', 0); // Keep status visible
 
         try {
             debugLog(`Starting playback for message: ${messageId}, UUID: ${uuid}, Timestamp: ${timestamp}`);
@@ -212,7 +240,7 @@ class MessagePlayer extends HTMLElement {
             this.shadowRoot.getElementById('playingTranscript').textContent = `"${transcriptText}"`;
 
             this.shadowRoot.getElementById('playingInfo').textContent = `Ready to play!`;
-            showStatus('Message loaded and ready to play!', 'success');
+            this.showStatus('Message loaded and ready to play!', 'success');
             
             // Auto-play the audio
             await this.currentAudio.play();
@@ -220,7 +248,7 @@ class MessagePlayer extends HTMLElement {
 
         } catch (error) {
             debugLog(`Playback failed: ${error.message}`, 'error');
-            showStatus(`Failed to play message: ${error.message}. Check console for details.`, 'error');
+            this.showStatus(`Failed to play message: ${error.message}. Check console for details.`, 'error');
             this.shadowRoot.getElementById('playingInfo').textContent = 'Error loading message.';
             this.currentAudio.src = ''; // Clear audio source on error
         }

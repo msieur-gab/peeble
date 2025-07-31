@@ -3,7 +3,7 @@
 import { AudioService } from '../services/audio.js';
 import { EncryptionService } from '../services/encryption.js';
 import { StorageService } from '../services/storage.js';
-import { debugLog, showStatus, generateMessageId, generateNfcUuid, URLParser } from '../services/utils.js';
+import { debugLog, generateMessageId, generateNfcUuid, URLParser } from '../services/utils.js';
 
 /**
  * Web Component for the voice message recording and creation interface.
@@ -17,6 +17,7 @@ class VoiceRecorder extends HTMLElement {
         this.encryptionService = new EncryptionService();
         // StorageService instance will be passed from main.js or peeble-app.js
         this.storageService = null;
+        this.statusDiv = null; // Reference to the status div in the shadow DOM
 
         this.audioBlob = null;
         this.recordingDuration = 0;
@@ -153,7 +154,33 @@ class VoiceRecorder extends HTMLElement {
                 </div>
             </div>
         `;
+        this.statusDiv = this.shadowRoot.getElementById('status');
     }
+
+    /**
+     * Displays a status message to the user.
+     * @param {string} message - The message to display.
+     * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
+     * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
+     */
+    showStatus(message, type = 'info', duration = 5000) {
+        if (this.statusDiv) {
+            this.statusDiv.textContent = message;
+            this.statusDiv.className = `status ${type}`;
+
+            if (duration > 0) {
+                setTimeout(() => {
+                    if (this.statusDiv.textContent === message) {
+                        this.statusDiv.className = 'status';
+                        this.statusDiv.textContent = 'Ready for action';
+                    }
+                }, duration);
+            }
+        } else {
+            debugLog(`Status display element not found in voice-recorder.`, 'warning');
+        }
+    }
+
 
     /**
      * Sets up event listeners for buttons and text areas.
@@ -279,7 +306,7 @@ class VoiceRecorder extends HTMLElement {
      * @private
      */
     handleAudioServiceError(errorMessage) {
-        showStatus(errorMessage, 'error');
+        this.showStatus(errorMessage, 'error');
         this.updateRecordingUI(false, false); // Reset UI on error
     }
 
@@ -307,19 +334,19 @@ class VoiceRecorder extends HTMLElement {
         const transcript = this.shadowRoot.getElementById('transcriptText').value.trim();
         
         if (!transcript) {
-            showStatus('Please add a transcript before saving.', 'error');
+            this.showStatus('Please add a transcript before saving.', 'error');
             return;
         }
         if (transcript.length > 500) {
-            showStatus('Transcript is too long. Max 500 characters.', 'error');
+            this.showStatus('Transcript is too long. Max 500 characters.', 'error');
             return;
         }
         if (!this.audioBlob) {
-            showStatus('No audio recorded. Please record a message first.', 'error');
+            this.showStatus('No audio recorded. Please record a message first.', 'error');
             return;
         }
         if (!this.storageService || (!this.storageService.apiKey || !this.storageService.secret)) {
-            showStatus('Pinata API credentials are not set. Please configure them.', 'error');
+            this.showStatus('Pinata API credentials are not set. Please configure them.', 'error');
             return;
         }
 
@@ -380,7 +407,7 @@ class VoiceRecorder extends HTMLElement {
             this.shadowRoot.getElementById('nfcUrlDisplay').textContent = nfcUrl;
             this.shadowRoot.getElementById('messageIdDisplay').textContent = messageId;
             this.showStep('success');
-            showStatus('Message saved! Now tap your Peeble to write the URL.', 'success', 0); // Keep message visible
+            this.showStatus('Message saved! Now tap your Peeble to write the URL.', 'success', 0); // Keep message visible
 
             // Dispatch event to main app to trigger NFC write mode
             // The NFC handler will listen for this and initiate writing when a tag is tapped.
@@ -389,7 +416,7 @@ class VoiceRecorder extends HTMLElement {
             
         } catch (error) {
             debugLog(`Save and NFC write preparation failed: ${error.message}`, 'error');
-            showStatus(`Failed to save message: ${error.message}`, 'error');
+            this.showStatus(`Failed to save message: ${error.message}`, 'error');
         } finally {
             saveBtn.textContent = originalText;
             saveBtn.disabled = false;
@@ -413,7 +440,7 @@ class VoiceRecorder extends HTMLElement {
         
         this.updateRecordingUI(false, false);
         this.showStep('recording');
-        showStatus('Ready to record your message.');
+        this.showStatus('Ready to record your message.');
     }
 
     /**
@@ -423,7 +450,7 @@ class VoiceRecorder extends HTMLElement {
     resetCreator() {
         this.retryRecording();
         // Also clear any NFC writing instructions
-        showStatus('Ready to create a new message.');
+        this.showStatus('Ready to create a new message.');
         // Notify parent to potentially stop NFC write mode if active
         window.dispatchEvent(new CustomEvent('stop-nfc-write'));
     }
