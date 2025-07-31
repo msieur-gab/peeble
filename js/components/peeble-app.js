@@ -30,28 +30,11 @@ class PeebleApp extends HTMLElement {
     }
 
     async checkNFCSupport() {
-        const nfcStatus = window.nfcService.getSupportStatus();
-        
-        if (nfcStatus.both) {
-            window.debugService.log('📱 Full NFC support available!', 'success');
-        } else if (nfcStatus.reading && !nfcStatus.writing) {
-            window.debugService.log('📱 NFC reading works, but writing not available', 'warning');
-            this.showNFCStatus('⚠️ NFC Writing Disabled: You can scan tags but not write to them. Enable both Chrome flags for full functionality.', 'warning');
-        } else if (!nfcStatus.reading) {
-            window.debugService.log('📱 NFC not supported. Enable Web NFC in Chrome flags:', 'warning');
-            window.debugService.log('chrome://flags/#enable-experimental-web-platform-features', 'warning');
-            this.showNFCStatus('NFC not supported. Enable Web NFC in Chrome flags and restart browser.', 'warning');
+        if ('NDEFReader' in window) {
+            window.debugService.log('📱 NFC supported - ready for testing!', 'success');
+        } else {
+            this.showNFCStatus('NFC not supported on this browser/device.', 'error');
         }
-        
-        // Check permissions if supported
-        if (nfcStatus.reading) {
-            const permission = await window.nfcService.checkPermissions();
-            if (permission === 'denied') {
-                this.showNFCStatus('NFC permission denied. Please enable in browser settings.', 'error');
-            }
-        }
-        
-        return nfcStatus;
     }
 
     async initCreationMode() {
@@ -235,77 +218,31 @@ class PeebleApp extends HTMLElement {
         
         if (!writeBtn || !statusEl) return;
         
-        // Check if writing is supported before attempting
-        if (!window.nfcService.isWriteSupported()) {
-            statusEl.className = 'nfc-status error';
-            statusEl.innerHTML = `
-                ❌ <strong>NFC Writing Not Supported</strong><br>
-                Enable both Chrome flags and restart:<br>
-                <small>
-                • chrome://flags/#enable-experimental-web-platform-features<br>
-                • chrome://flags/#enable-web-nfc<br>
-                Set both to "Enabled" then restart Chrome
-                </small>
-            `;
-            writeBtn.textContent = '❌ Writing Disabled';
-            writeBtn.disabled = true;
-            return;
-        }
-        
         const originalText = writeBtn.textContent;
         writeBtn.disabled = true;
-        writeBtn.textContent = '📱 Preparing...';
+        writeBtn.textContent = '📱 Writing...';
         
         try {
-            window.debugService.log(`📱 Attempting to write URL: ${nfcUrl}`, 'nfc');
-            
-            // Check NFC permissions first
-            const permission = await window.nfcService.checkPermissions();
-            window.debugService.log(`📱 NFC permission status: ${permission}`, 'nfc');
-            
             statusEl.className = 'nfc-status';
-            statusEl.innerHTML = '📱 <strong>Place phone on NFC tag now...</strong><br>Keep steady until write completes';
+            statusEl.innerHTML = '📱 <strong>Place phone on NFC tag now...</strong>';
             
-            // Add timeout for write operation
-            const writePromise = window.nfcService.writeToTag(nfcUrl);
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Write timeout - try holding phone closer to tag')), 15000)
-            );
-            
-            await Promise.race([writePromise, timeoutPromise]);
+            await window.nfcService.writeToTag(nfcUrl);
             
             window.debugService.log('📱 NFC write successful!', 'success');
             statusEl.className = 'nfc-status success';
-            statusEl.innerHTML = '✅ <strong>Write successful!</strong><br>NFC tag now contains your Peeble message';
+            statusEl.innerHTML = '✅ <strong>Write successful!</strong>';
             
-            // Wait a moment then show success
             setTimeout(() => {
                 this.updateStepIndicator(3);
                 this.showSuccess();
-            }, 2000);
+            }, 1500);
             
         } catch (error) {
             window.debugService.log(`📱 NFC write failed: ${error.message}`, 'error');
             
             statusEl.className = 'nfc-status error';
+            statusEl.innerHTML = `❌ <strong>Write failed:</strong> ${error.message}`;
             
-            // Provide specific error guidance
-            let errorMessage = error.message;
-            let suggestion = '';
-            
-            if (error.message.includes('timeout')) {
-                suggestion = '<br><small>💡 Try holding your phone closer to the NFC tag</small>';
-            } else if (error.message.includes('NDEFWriter') || error.message.includes('not supported')) {
-                suggestion = '<br><small>💡 Enable both chrome://flags/#enable-experimental-web-platform-features and chrome://flags/#enable-web-nfc</small>';
-            } else if (error.message.includes('NotAllowedError') || error.message.includes('permission denied')) {
-                suggestion = '<br><small>💡 NFC permission denied. Check browser settings</small>';
-            } else if (error.message.includes('NetworkError') || error.message.includes('Could not connect')) {
-                suggestion = '<br><small>💡 NFC tag may be too far away or incompatible</small>';
-            }
-            
-            statusEl.innerHTML = `❌ <strong>Write failed:</strong> ${errorMessage}${suggestion}`;
-            
-            // Re-enable button for retry
             writeBtn.disabled = false;
             writeBtn.textContent = '🔄 Try Again';
         }
