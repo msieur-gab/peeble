@@ -30,32 +30,17 @@ export function generateMessageId() {
 }
 
 /**
- * Generates a random NFC UUID.
- * @returns {string} A 32-character hexadecimal UUID string.
- */
-export function generateNfcUuid() {
-    const chars = '0123456789ABCDEF';
-    let uuid = '';
-    for (let i = 0; i < 32; i++) {
-        // Optional: add spaces for readability, but NFC URLs might prefer no spaces
-        // if (i > 0 && i % 4 === 0) uuid += '';
-        uuid += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return uuid;
-}
-
-/**
  * Utility for parsing and creating Peeble-specific URLs.
  */
 export const URLParser = {
     /**
      * Extracts Peeble parameters from the current URL's hash.
-     * @returns {{uuid: string|null, messageId: string|null, timestamp: string|null}}
+     * @returns {{serial: string|null, messageId: string|null, timestamp: string|null}}
      */
     getParams() {
         const urlParams = new URLSearchParams(window.location.hash.substring(1));
         return {
-            uuid: urlParams.get('uuid'),
+            serial: urlParams.get('serial'),
             messageId: urlParams.get('messageId'),
             timestamp: urlParams.get('timestamp')
         };
@@ -64,15 +49,15 @@ export const URLParser = {
     /**
      * Creates a Peeble URL with the given parameters.
      * @param {object} params - The parameters for the URL.
-     * @param {string} params.uuid - The NFC UUID.
+     * @param {string} params.serial - The NFC tag's serial number.
      * @param {string} params.messageId - The message ID.
      * @param {number} params.timestamp - The timestamp.
      * @returns {string} The formatted Peeble URL.
      */
-    createNfcUrl({ uuid, messageId, timestamp }) {
+    createNfcUrl({ serial, messageId, timestamp }) {
         // Use a placeholder domain for development. In production, this would be peeble.app
         const baseUrl = window.location.origin + window.location.pathname;
-        const url = `${baseUrl}#uuid=${uuid}&messageId=${messageId}&timestamp=${timestamp}`;
+        const url = `${baseUrl}#serial=${serial}&messageId=${messageId}&timestamp=${timestamp}`;
         debugLog(`Generated NFC URL: ${url}`);
         return url;
     }

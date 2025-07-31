@@ -15,8 +15,8 @@ import './components/nfc-handler.js';
 // =======================================================
 // For a quick demo, paste your Pinata API credentials here.
 // These will be used if no credentials are saved in localStorage.
-const DEFAULT_PINATA_API_KEY = '54e63158b8fd4788f2ef'; // <-- Paste your API Key here
-const DEFAULT_PINATA_SECRET = '9586c0caa8bc183e8023f7e3b34c5b1e5a4672ca94f0d4d4bdddf8b4fe50e906'; // <-- Paste your Secret here
+const DEFAULT_PINATA_API_KEY = ''; // <-- Paste your API Key here
+const DEFAULT_PINATA_SECRET = ''; // <-- Paste your Secret here
 // =======================================================
 
 let storageService; // Global instance of StorageService
@@ -131,4 +131,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
     debugLog('Peeble App initialization complete.');
 });
-

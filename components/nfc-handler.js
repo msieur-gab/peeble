@@ -84,29 +84,37 @@ class NFCHandler extends HTMLElement {
 
     /**
      * Handles an NFC tag being scanned.
-     * @param {string|null} url - The URL extracted from the NDEF record, or null if no URL found.
+     * @param {{ url: string|null, serial: string|null }} data - The data from the scanned tag.
      * @private
      */
-    handleNfcTagScanned(url) {
+    handleNfcTagScanned(data) {
+        // Display the serial number for debugging
+        const serialDisplay = document.getElementById('nfc-serial-display');
+        const serialNumberSpan = document.getElementById('serialNumber');
+        if (serialDisplay && serialNumberSpan) {
+            serialNumberSpan.textContent = data.serial || 'N/A';
+            serialDisplay.style.display = 'block';
+        }
+
         if (this.writeUrlQueue) {
             // If we are in write mode, attempt to write the URL
             debugLog(`NFC tag scanned while in write mode. Attempting to write URL: ${this.writeUrlQueue}`);
             this.writeToNfcTag(this.writeUrlQueue);
             this.writeUrlQueue = null; // Clear the queue after attempting write
-        } else if (url && url.includes(window.location.origin + window.location.pathname)) {
+        } else if (data.url && data.url.includes(window.location.origin + window.location.pathname)) {
             // If a Peeble URL is scanned and we are not in write mode, navigate to it
-            debugLog(`Peeble URL scanned: ${url}. Navigating...`);
+            debugLog(`Peeble URL scanned: ${data.url}. Navigating...`);
             this.statusIndicator.textContent = 'NFC Status: Peeble scanned! Loading message...';
             // Navigate to the URL, which will trigger the peeble-app to switch to reader mode
-            window.location.href = url;
-        } else if (url) {
-            debugLog(`Non-Peeble URL scanned: ${url}. Ignoring.`, 'info');
+            window.location.href = data.url;
+        } else if (data.url) {
+            debugLog(`Non-Peeble URL scanned: ${data.url}. Ignoring.`, 'info');
             this.statusIndicator.textContent = 'NFC Status: Non-Peeble tag scanned. Ignoring.';
         } else {
             debugLog('Blank NFC tag scanned or no URL record found.', 'info');
             // If no URL, it's likely a blank tag, so dispatch event for creator mode
             this.statusIndicator.textContent = 'NFC Status: Blank Peeble scanned. Ready to create.';
-            window.dispatchEvent(new CustomEvent('blank-nfc-scanned'));
+            window.dispatchEvent(new CustomEvent('blank-nfc-scanned', { detail: { serial: data.serial } }));
         }
     }
 

@@ -3,7 +3,7 @@
 import { AudioService } from '../services/audio.js';
 import { EncryptionService } from '../services/encryption.js';
 import { StorageService } from '../services/storage.js';
-import { debugLog, generateMessageId, generateNfcUuid, URLParser } from '../services/utils.js';
+import { debugLog, generateMessageId, URLParser } from '../services/utils.js';
 
 /**
  * Web Component for the voice message recording and creation interface.
@@ -18,6 +18,7 @@ class VoiceRecorder extends HTMLElement {
         // StorageService instance will be passed from main.js or peeble-app.js
         this.storageService = null;
         this.statusDiv = null; // Reference to the status div in the shadow DOM
+        this.tagSerial = null; // The NFC tag's serial number
 
         this.audioBlob = null;
         this.recordingDuration = 0;
@@ -38,7 +39,20 @@ class VoiceRecorder extends HTMLElement {
         this.render();
         this.setupEventListeners();
     }
-
+    
+    /**
+     * Lifecycle callback to handle when the component is inserted into the DOM.
+     */
+    connectedCallback() {
+        this.tagSerial = this.getAttribute('serial') || null;
+        debugLog(`VoiceRecorder connected. Tag serial: ${this.tagSerial}`);
+        if (!this.tagSerial) {
+            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
+        } else {
+            this.showStatus('Tag scanned. You can now record your message.', 'success');
+        }
+    }
+    
     /**
      * Sets the StorageService instance. Called from the parent component (peeble-app).
      * @param {StorageService} service
@@ -212,6 +226,11 @@ class VoiceRecorder extends HTMLElement {
      * @private
      */
     async toggleRecording() {
+        if (!this.tagSerial) {
+            this.showStatus('Please scan a blank NFC tag first.', 'warning');
+            return;
+        }
+
         if (this.audioService.getRecordingState()) {
             this.audioService.stopRecording();
             this.updateRecordingUI(false, true); // Indicate processing
@@ -333,6 +352,10 @@ class VoiceRecorder extends HTMLElement {
     async saveToIPFSAndWriteNFC() {
         const transcript = this.shadowRoot.getElementById('transcriptText').value.trim();
         
+        if (!this.tagSerial) {
+            this.showStatus('Error: No NFC tag serial number available. Please scan a blank tag to start.', 'error');
+            return;
+        }
         if (!transcript) {
             this.showStatus('Please add a transcript before saving.', 'error');
             return;
@@ -358,13 +381,13 @@ class VoiceRecorder extends HTMLElement {
         try {
             // Generate unique identifiers for this message
             const messageId = generateMessageId();
-            const nfcUuid = generateNfcUuid();
             const timestamp = Date.now();
             
-            debugLog(`Generated message data: ID=${messageId}, UUID=${nfcUuid}, Timestamp=${timestamp}`);
+            debugLog(`Generated message data: ID=${messageId}, Serial: ${this.tagSerial}, Timestamp=${timestamp}`);
             
             saveBtn.textContent = 'Deriving encryption key...';
-            const encryptionKey = await this.encryptionService.deriveEncryptionKey(nfcUuid, timestamp);
+            // Use the tag's serial number for key derivation
+            const encryptionKey = await this.encryptionService.deriveEncryptionKey(this.tagSerial, timestamp);
             debugLog('Encryption key derived successfully.', 'success');
             
             // Convert audio blob to ArrayBuffer for encryption
@@ -386,7 +409,7 @@ class VoiceRecorder extends HTMLElement {
             // Store message metadata locally (simulating a saved "Peeble stone" for the reader)
             const messageData = {
                 messageId,
-                nfcUuid,
+                serial: this.tagSerial,
                 timestamp,
                 ipfsHash,
                 encryptedTranscript, // Store encrypted transcript for local playback
@@ -400,8 +423,8 @@ class VoiceRecorder extends HTMLElement {
             localStorage.setItem('peebleMessages', JSON.stringify(savedMessages));
             debugLog('Message metadata saved to localStorage.', 'success');
 
-            // Generate the NFC URL
-            const nfcUrl = URLParser.createNfcUrl({ uuid: nfcUuid, messageId: messageId, timestamp: timestamp });
+            // Generate the NFC URL, now using the tag's serial number
+            const nfcUrl = URLParser.createNfcUrl({ serial: this.tagSerial, messageId: messageId, timestamp: timestamp });
 
             // Display success message and generated URL for NFC writing
             this.shadowRoot.getElementById('nfcUrlDisplay').textContent = nfcUrl;

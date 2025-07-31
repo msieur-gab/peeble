@@ -51,6 +51,7 @@ export class NFCService {
             this.ndefReader.onreading = (event) => {
                 debugLog('NFC tag detected!', 'success');
                 const message = event.message;
+                const serialNumber = event.serialNumber;
                 let urlRecord = null;
 
                 // Iterate through NDEF records to find a URL
@@ -63,7 +64,8 @@ export class NFCService {
                         break;
                     }
                 }
-                this.onNfcTagScanned(urlRecord); // Pass the URL to the callback
+                // Pass both the URL and the serial number to the callback
+                this.onNfcTagScanned({ url: urlRecord, serial: serialNumber });
             };
 
             this.ndefReader.onreadingerror = (event) => {

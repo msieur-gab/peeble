@@ -6,11 +6,11 @@ import { debugLog } from '../services/utils.js';
 
 /**
  * Web Component for playing back encrypted voice messages.
- * It expects 'uuid', 'message-id', and 'timestamp' attributes.
+ * It expects 'serial', 'message-id', and 'timestamp' attributes.
  */
 class MessagePlayer extends HTMLElement {
     static get observedAttributes() {
-        return ['uuid', 'message-id', 'timestamp'];
+        return ['serial', 'message-id', 'timestamp'];
     }
 
     constructor() {
@@ -165,7 +165,7 @@ class MessagePlayer extends HTMLElement {
         if (oldValue !== newValue) {
             debugLog(`Attribute changed: ${name} from ${oldValue} to ${newValue}`);
             // Reload message if critical parameters change, and the service is already set.
-            if (this.storageService && (name === 'uuid' || name === 'message-id' || name === 'timestamp')) {
+            if (this.storageService && (name === 'serial' || name === 'message-id' || name === 'timestamp')) {
                 this.loadMessage();
             }
         }
@@ -176,11 +176,11 @@ class MessagePlayer extends HTMLElement {
      * @private
      */
     async loadMessage() {
-        const uuid = this.getAttribute('uuid');
+        const serial = this.getAttribute('serial');
         const messageId = this.getAttribute('message-id');
         const timestamp = parseInt(this.getAttribute('timestamp'), 10);
 
-        if (!uuid || !messageId || isNaN(timestamp)) {
+        if (!serial || !messageId || isNaN(timestamp)) {
             this.showStatus('Missing or invalid message parameters.', 'error');
             debugLog('Missing or invalid message parameters for playback.', 'error');
             return;
@@ -197,35 +197,39 @@ class MessagePlayer extends HTMLElement {
         this.showStatus('Downloading message...', 'info', 0); // Keep status visible
 
         try {
-            debugLog(`Starting playback for message: ${messageId}, UUID: ${uuid}, Timestamp: ${timestamp}`);
+            debugLog(`Starting playback for message: ${messageId}, Serial: ${serial}, Timestamp: ${timestamp}`);
             
-            // 1. Download encrypted audio from IPFS
-            const encryptedBinaryData = await this.storageService.downloadFromPinata(messageId); // messageId is the IPFS hash
+            // 1. Find the message data in localStorage to get the correct IPFS hash
+            const savedMessages = JSON.parse(localStorage.getItem('peebleMessages') || '[]');
+            const messageData = savedMessages.find(msg => msg.messageId === messageId);
+
+            if (!messageData || !messageData.ipfsHash) {
+                throw new Error('Message data not found in local storage. Cannot download.');
+            }
+
+            // 2. Download encrypted audio from IPFS using the correct hash
+            const ipfsHash = messageData.ipfsHash;
+            const encryptedBinaryData = await this.storageService.downloadFromPinata(ipfsHash);
             debugLog(`Downloaded encrypted binary data: ${encryptedBinaryData.length} bytes`, 'success');
             
-            // 2. Derive decryption key
+            // 3. Derive decryption key using the tag's serial number
             this.shadowRoot.getElementById('playingInfo').textContent = 'Deriving decryption key...';
-            const decryptionKey = await this.encryptionService.deriveEncryptionKey(uuid, timestamp);
+            const decryptionKey = await this.encryptionService.deriveEncryptionKey(serial, timestamp);
             debugLog('Decryption key derived successfully.', 'success');
             
-            // 3. Decrypt audio from binary data
+            // 4. Decrypt audio from binary data
             this.shadowRoot.getElementById('playingInfo').textContent = 'Decrypting audio...';
             const decryptedAudio = await this.encryptionService.decryptFromBinary(encryptedBinaryData, decryptionKey);
             debugLog(`Audio decrypted successfully: ${decryptedAudio.byteLength} bytes`, 'success');
             
-            // 4. Create playable audio Blob and set to audio element
+            // 5. Create playable audio Blob and set to audio element
             const audioBlob = new Blob([decryptedAudio], { type: 'audio/webm' }); // Assuming webm format from recording
             const audioUrl = URL.createObjectURL(audioBlob);
             this.currentAudio.src = audioUrl;
             
-            // 5. Retrieve and decrypt transcript (from localStorage, assuming it was saved there for quick access)
-            // In a real scenario, the transcript might also be stored on IPFS or a lookup service.
-            // For this demo, we rely on the `peebleMessages` in localStorage.
-            const savedMessages = JSON.parse(localStorage.getItem('peebleMessages') || '[]');
-            const messageData = savedMessages.find(msg => msg.messageId === messageId);
-
+            // 6. Decrypt and display transcript from the saved message data
             let transcriptText = 'Transcript not available.';
-            if (messageData && messageData.encryptedTranscript) {
+            if (messageData.encryptedTranscript) {
                 debugLog('Decrypting transcript from localStorage...');
                 try {
                     const decryptedTranscriptBinary = await this.encryptionService.decryptFromBase64(messageData.encryptedTranscript, decryptionKey);

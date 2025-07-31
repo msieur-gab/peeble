@@ -7,12 +7,12 @@ import { debugLog } from './utils.js';
  */
 export class EncryptionService {
     /**
-     * Derives an encryption key from a UUID and timestamp using PBKDF2.
-     * @param {string} uuid - The NFC UUID, used as salt for key derivation.
+     * Derives an encryption key from a tag serial and timestamp using PBKDF2.
+     * @param {string} serial - The NFC tag's serial number, used as salt for key derivation.
      * @param {number} timestamp - The timestamp, used as key material.
      * @returns {Promise<CryptoKey>} A promise that resolves to the derived CryptoKey.
      */
-    async deriveEncryptionKey(uuid, timestamp) {
+    async deriveEncryptionKey(serial, timestamp) {
         debugLog('Deriving encryption key...');
         try {
             // Use timestamp as raw key material
@@ -24,11 +24,11 @@ export class EncryptionService {
                 ['deriveKey']
             );
 
-            // Derive the actual AES-GCM key using UUID as salt
+            // Derive the actual AES-GCM key using serial as salt
             const key = await crypto.subtle.deriveKey(
                 {
                     name: 'PBKDF2',
-                    salt: new TextEncoder().encode(uuid), // UUID as salt
+                    salt: new TextEncoder().encode(serial), // Tag serial as salt
                     iterations: 100000, // High iteration count for security
                     hash: 'SHA-256'
                 },

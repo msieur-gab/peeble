@@ -102,7 +102,7 @@ class PeebleApp extends HTMLElement {
      */
     setupEventListeners() {
         // Listen for events from NFC handler or other components to switch modes
-        window.addEventListener('blank-nfc-scanned', () => this.switchToCreatorMode());
+        window.addEventListener('blank-nfc-scanned', (event) => this.switchToCreatorMode(event.detail.serial));
         window.addEventListener('close-player', () => this.switchToCreatorMode()); // After playing, go back to creator
         window.addEventListener('nfc-write-complete', () => this.switchToCreatorMode()); // After writing, go back to creator
     }
@@ -119,7 +119,7 @@ class PeebleApp extends HTMLElement {
 
         const params = URLParser.getParams();
         
-        if (params.uuid && params.messageId && params.timestamp) {
+        if (params.serial && params.messageId && params.timestamp) {
             debugLog('URL parameters found. Switching to Reading Mode.');
             this.switchToReaderMode(params);
         } else {
@@ -130,15 +130,16 @@ class PeebleApp extends HTMLElement {
 
     /**
      * Switches the app to Creation Mode (voice recorder).
+     * @param {string|null} serial - The NFC tag's serial number, if available.
      * @private
      */
-    switchToCreatorMode() {
+    switchToCreatorMode(serial = null) {
         if (this.currentMode === 'CREATOR') {
             debugLog('Already in Creator Mode. No change needed.', 'info');
             return;
         }
-        debugLog('Switching to Creator Mode.');
-        this.appContent.innerHTML = '<voice-recorder></voice-recorder>';
+        debugLog(`Switching to Creator Mode. Serial: ${serial}`);
+        this.appContent.innerHTML = `<voice-recorder serial="${serial || ''}"></voice-recorder>`;
         const voiceRecorder = this.appContent.querySelector('voice-recorder');
         if (voiceRecorder) {
             voiceRecorder.setStorageService(this.storageService);
@@ -149,7 +150,7 @@ class PeebleApp extends HTMLElement {
 
     /**
      * Switches the app to Reading Mode (message player).
-     * @param {object} params - The URL parameters (uuid, messageId, timestamp).
+     * @param {object} params - The URL parameters (serial, messageId, timestamp).
      * @private
      */
     switchToReaderMode(params) {
@@ -159,7 +160,7 @@ class PeebleApp extends HTMLElement {
             const existingPlayer = this.appContent.querySelector('message-player');
             if (existingPlayer) {
                 // Update attributes to trigger reload if needed
-                existingPlayer.setAttribute('uuid', params.uuid);
+                existingPlayer.setAttribute('serial', params.serial);
                 existingPlayer.setAttribute('message-id', params.messageId);
                 existingPlayer.setAttribute('timestamp', params.timestamp);
             }
@@ -168,7 +169,7 @@ class PeebleApp extends HTMLElement {
         debugLog('Switching to Reader Mode.');
         this.appContent.innerHTML = `
             <message-player 
-                uuid="${params.uuid}" 
+                serial="${params.serial}" 
                 message-id="${params.messageId}" 
                 timestamp="${params.timestamp}">
             </message-player>
