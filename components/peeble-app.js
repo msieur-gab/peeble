@@ -1,0 +1,149 @@
+// components/peeble-app.js
+
+import { URLParser, debugLog, showStatus } from '../services/utils.js';
+import { StorageService } from '../services/storage.js'; // Import StorageService
+// Import components so they are defined
+import './voice-recorder.js';
+import './message-player.js';
+
+/**
+ * The main application Web Component.
+ * It determines the app mode (creation or reading) based on URL parameters
+ * and renders the appropriate sub-component (voice-recorder or message-player).
+ */
+class PeebleApp extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+
+        this.storageService = null; // Will be initialized globally and passed
+        this.currentMode = null;
+
+        this.render(); // Render initial empty state
+        this.setupEventListeners();
+    }
+
+    /**
+     * Sets the StorageService instance. Called from main.js.
+     * @param {StorageService} service
+     */
+    setStorageService(service) {
+        this.storageService = service;
+        debugLog('StorageService set in PeebleApp.');
+        // Once storageService is available, initialize the mode
+        this.initializeMode();
+    }
+
+    /**
+     * Renders the initial structure. Content will be dynamically added.
+     * @private
+     */
+    render() {
+        this.shadowRoot.innerHTML = `
+            <style>
+                /* Import global styles */
+                @import '../style.css';
+
+                /* Basic styling for the app container */
+                .app-content {
+                    min-height: 300px; /* Ensure some height even when empty */
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    flex-direction: column;
+                }
+            </style>
+            <div class="app-content" id="appContent">
+                <p style="color: var(--secondary-color);">Loading Peeble app...</p>
+            </div>
+        `;
+        this.appContent = this.shadowRoot.getElementById('appContent');
+    }
+
+    /**
+     * Sets up event listeners for mode changes.
+     * @private
+     */
+    setupEventListeners() {
+        // Listen for events from NFC handler or other components to switch modes
+        window.addEventListener('blank-nfc-scanned', () => this.switchToCreatorMode());
+        window.addEventListener('close-player', () => this.switchToCreatorMode()); // After playing, go back to creator
+        window.addEventListener('nfc-write-complete', () => this.switchToCreatorMode()); // After writing, go back to creator
+    }
+
+    /**
+     * Determines the initial app mode based on URL parameters and renders the appropriate component.
+     * @public
+     */
+    initializeMode() {
+        if (!this.storageService) {
+            debugLog('StorageService not yet available, delaying mode initialization.', 'warning');
+            return; // Wait for StorageService to be set
+        }
+
+        const params = URLParser.getParams();
+        
+        if (params.uuid && params.messageId && params.timestamp) {
+            debugLog('URL parameters found. Switching to Reading Mode.');
+            this.switchToReaderMode(params);
+        } else {
+            debugLog('No URL parameters found. Switching to Creation Mode.');
+            this.switchToCreatorMode();
+        }
+    }
+
+    /**
+     * Switches the app to Creation Mode (voice recorder).
+     * @private
+     */
+    switchToCreatorMode() {
+        if (this.currentMode === 'CREATOR') {
+            debugLog('Already in Creator Mode. No change needed.', 'info');
+            return;
+        }
+        debugLog('Switching to Creator Mode.');
+        this.appContent.innerHTML = '<voice-recorder></voice-recorder>';
+        const voiceRecorder = this.appContent.querySelector('voice-recorder');
+        if (voiceRecorder) {
+            voiceRecorder.setStorageService(this.storageService);
+        }
+        this.currentMode = 'CREATOR';
+        showStatus('Ready to create a new Peeble message.', 'info');
+    }
+
+    /**
+     * Switches the app to Reading Mode (message player).
+     * @param {object} params - The URL parameters (uuid, messageId, timestamp).
+     * @private
+     */
+    switchToReaderMode(params) {
+        if (this.currentMode === 'READER') {
+            debugLog('Already in Reader Mode. No change needed.', 'info');
+            // If parameters are different, the message-player's attributeChangedCallback will handle reload
+            const existingPlayer = this.appContent.querySelector('message-player');
+            if (existingPlayer) {
+                // Update attributes to trigger reload if needed
+                existingPlayer.setAttribute('uuid', params.uuid);
+                existingPlayer.setAttribute('message-id', params.messageId);
+                existingPlayer.setAttribute('timestamp', params.timestamp);
+            }
+            return;
+        }
+        debugLog('Switching to Reader Mode.');
+        this.appContent.innerHTML = `
+            <message-player 
+                uuid="${params.uuid}" 
+                message-id="${params.messageId}" 
+                timestamp="${params.timestamp}">
+            </message-player>
+        `;
+        const messagePlayer = this.appContent.querySelector('message-player');
+        if (messagePlayer) {
+            messagePlayer.setStorageService(this.storageService);
+        }
+        this.currentMode = 'READER';
+        showStatus('Loading your Peeble message...', 'info');
+    }
+}
+
+customElements.define('peeble-app', PeebleApp);
