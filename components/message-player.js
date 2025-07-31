@@ -32,6 +32,9 @@ class MessagePlayer extends HTMLElement {
      */
     setStorageService(service) {
         this.storageService = service;
+        debugLog('StorageService set in MessagePlayer.');
+        // Now that the service is available, we can safely load the message.
+        this.loadMessage();
     }
 
     /**
@@ -147,10 +150,8 @@ class MessagePlayer extends HTMLElement {
      */
     connectedCallback() {
         debugLog('MessagePlayer connected to DOM.');
-        // Ensure storageService is set before attempting to load message
-        // This might be called before setStorageService if the parent renders quickly.
-        // The loadMessage will handle the check.
-        this.loadMessage();
+        // Removed the call to this.loadMessage() from here.
+        // It is now called by the parent component via setStorageService().
     }
 
     /**
@@ -163,8 +164,8 @@ class MessagePlayer extends HTMLElement {
     attributeChangedCallback(name, oldValue, newValue) {
         if (oldValue !== newValue) {
             debugLog(`Attribute changed: ${name} from ${oldValue} to ${newValue}`);
-            // Reload message if critical parameters change, e.g., if user scans a different tag
-            if (name === 'uuid' || name === 'message-id' || name === 'timestamp') {
+            // Reload message if critical parameters change, and the service is already set.
+            if (this.storageService && (name === 'uuid' || name === 'message-id' || name === 'timestamp')) {
                 this.loadMessage();
             }
         }

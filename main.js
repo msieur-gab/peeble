@@ -10,7 +10,17 @@ import './components/voice-recorder.js';
 import './components/message-player.js';
 import './components/nfc-handler.js';
 
+// =======================================================
+// === DEMO SETUP: ENTER PINATA CREDENTIALS HERE ===
+// =======================================================
+// For a quick demo, paste your Pinata API credentials here.
+// These will be used if no credentials are saved in localStorage.
+const DEFAULT_PINATA_API_KEY = '54e63158b8fd4788f2ef'; // <-- Paste your API Key here
+const DEFAULT_PINATA_SECRET = '9586c0caa8bc183e8023f7e3b34c5b1e5a4672ca94f0d4d4bdddf8b4fe50e906'; // <-- Paste your Secret here
+// =======================================================
+
 let storageService; // Global instance of StorageService
+let peebleApp; // Reference to the main component
 
 /**
  * Initializes the Pinata API credentials and tests the connection.
@@ -26,7 +36,6 @@ window.testPinataConnection = async function() {
     const secret = secretInput.value.trim();
 
     if (!apiKey || !secret) {
-        // The individual components will now handle their own status display
         debugLog('Pinata credentials missing.', 'error');
         return;
     }
@@ -46,8 +55,7 @@ window.testPinataConnection = async function() {
             debugLog('Pinata connection successful!', 'success');
             debugLog('Pinata credentials saved and connection verified.', 'success');
             
-            // Re-initialize the PeebleApp now that StorageService is ready
-            const peebleApp = document.querySelector('peeble-app');
+            // Pass the service to the component and trigger initialization
             if (peebleApp) {
                 peebleApp.setStorageService(storageService);
             }
@@ -69,9 +77,9 @@ window.testPinataConnection = async function() {
 document.addEventListener('DOMContentLoaded', () => {
     debugLog('DOM Content Loaded. Initializing Peeble App.');
 
-    // Initialize StorageService
-    const savedApiKey = localStorage.getItem('pinataApiKey');
-    const savedSecret = localStorage.getItem('pinataSecret');
+    // Initialize StorageService with credentials from localStorage or defaults
+    const savedApiKey = localStorage.getItem('pinataApiKey') || DEFAULT_PINATA_API_KEY;
+    const savedSecret = localStorage.getItem('pinataSecret') || DEFAULT_PINATA_SECRET;
     storageService = new StorageService(savedApiKey || '', savedSecret || '');
 
     // Populate API key inputs if saved
@@ -81,7 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (secretInput) secretInput.value = savedSecret || '';
 
     // Hide API setup if credentials are already present
-    if (savedApiKey && savedSecret) {
+    const hasCredentials = !!savedApiKey && !!savedSecret;
+    if (hasCredentials) {
         document.getElementById('apiSetup').style.display = 'none';
         debugLog('Saved Pinata credentials loaded automatically.', 'success');
     } else {
@@ -104,16 +113,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Get the main PeebleApp component and pass the storage service
-    const peebleApp = document.querySelector('peeble-app');
+    // Get the main PeebleApp component
+    peebleApp = document.querySelector('peeble-app');
     if (peebleApp) {
+        // Always set the service, whether credentials exist or not.
+        // The PeebleApp component's logic will handle mode switching.
         peebleApp.setStorageService(storageService);
     } else {
         debugLog('PeebleApp component not found in the DOM.', 'error');
     }
 
     // Initialize NFC Handler - it will start scanning on its own
-    // The NFC handler will dispatch events that peeble-app listens to for mode switching.
     const nfcHandler = document.querySelector('nfc-handler');
     if (!nfcHandler) {
         debugLog('NFC Handler component not found in the DOM.', 'error');
@@ -121,3 +131,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
     debugLog('Peeble App initialization complete.');
 });
+
