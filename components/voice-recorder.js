@@ -235,6 +235,7 @@ class VoiceRecorder extends HTMLElement {
      * @private
      */
     async toggleRecording() {
+        debugLog(`Toggle recording called. Current serial is: ${this.tagSerial}`);
         if (!this.tagSerial) {
             this.showStatus('Please scan a blank NFC tag first.', 'warning');
             return;
