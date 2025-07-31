@@ -30,19 +30,28 @@ class PeebleApp extends HTMLElement {
     }
 
     async checkNFCSupport() {
-        if (window.nfcService.isSupported()) {
-            window.debugService.log('📱 NFC supported - ready for real tags!', 'success');
-            
-            // Check permissions
-            const permission = await window.nfcService.checkPermissions();
-            if (permission === 'denied') {
-                this.showNFCStatus('NFC permission denied. Please enable in browser settings.', 'error');
-            }
-        } else {
+        const nfcStatus = window.nfcService.getSupportStatus();
+        
+        if (nfcStatus.both) {
+            window.debugService.log('📱 Full NFC support available!', 'success');
+        } else if (nfcStatus.reading && !nfcStatus.writing) {
+            window.debugService.log('📱 NFC reading works, but writing not available', 'warning');
+            this.showNFCStatus('⚠️ NFC Writing Disabled: You can scan tags but not write to them. Enable both Chrome flags for full functionality.', 'warning');
+        } else if (!nfcStatus.reading) {
             window.debugService.log('📱 NFC not supported. Enable Web NFC in Chrome flags:', 'warning');
             window.debugService.log('chrome://flags/#enable-experimental-web-platform-features', 'warning');
             this.showNFCStatus('NFC not supported. Enable Web NFC in Chrome flags and restart browser.', 'warning');
         }
+        
+        // Check permissions if supported
+        if (nfcStatus.reading) {
+            const permission = await window.nfcService.checkPermissions();
+            if (permission === 'denied') {
+                this.showNFCStatus('NFC permission denied. Please enable in browser settings.', 'error');
+            }
+        }
+        
+        return nfcStatus;
     }
 
     async initCreationMode() {
@@ -83,7 +92,7 @@ class PeebleApp extends HTMLElement {
         
         // Create message player component
         this.currentComponent = document.createElement('message-player');
-        this.currentComponent.setAttribute('uuid', params.uuid);
+        this.currentComponent.setAttribute('serial', params.serial); // Use actual tag serial
         this.currentComponent.setAttribute('message-id', params.messageId);
         this.currentComponent.setAttribute('timestamp', params.timestamp);
         
@@ -143,15 +152,23 @@ class PeebleApp extends HTMLElement {
         );
     }
 
-    handleNFCRead(url, serialNumber) {
-        window.debugService.log(`📱 NFC tag scanned: ${url || 'blank tag'}`, 'nfc');
+    handleNFCRead(url, tagSerial) {
+        window.debugService.log(`📱 NFC tag scanned: ${url || 'blank tag'} (Serial: ${tagSerial})`, 'nfc');
         
         if (url && window.URLParser.isPeebleUrl(url)) {
-            // Redirect to reading mode
+            // Written Peeble tag - redirect to reading mode
             window.location.href = url;
+        } else if (!url && tagSerial) {
+            // Blank tag with serial number - perfect for creation mode
+            this.showNFCStatus(`✅ Blank NFC tag detected!\nSerial: ${tagSerial}\nReady to create message with this tag.`, 'success');
+            
+            // Pass the serial number to the voice recorder
+            if (this.currentComponent && this.currentComponent.tagName === 'VOICE-RECORDER') {
+                this.currentComponent.setTagSerial(tagSerial);
+            }
         } else if (!url) {
-            // Blank tag - perfect for creation mode
-            this.showNFCStatus('✅ Blank NFC tag detected - ready to create message!', 'success');
+            // Blank tag but no serial (shouldn't happen, but handle it)
+            this.showNFCStatus('📱 Blank NFC tag detected - ready to create message!', 'success');
         } else {
             // Other URL
             this.showNFCStatus('📱 NFC tag contains different URL - place a blank tag to create message', 'warning');
@@ -218,6 +235,23 @@ class PeebleApp extends HTMLElement {
         
         if (!writeBtn || !statusEl) return;
         
+        // Check if writing is supported before attempting
+        if (!window.nfcService.isWriteSupported()) {
+            statusEl.className = 'nfc-status error';
+            statusEl.innerHTML = `
+                ❌ <strong>NFC Writing Not Supported</strong><br>
+                Enable both Chrome flags and restart:<br>
+                <small>
+                • chrome://flags/#enable-experimental-web-platform-features<br>
+                • chrome://flags/#enable-web-nfc<br>
+                Set both to "Enabled" then restart Chrome
+                </small>
+            `;
+            writeBtn.textContent = '❌ Writing Disabled';
+            writeBtn.disabled = true;
+            return;
+        }
+        
         const originalText = writeBtn.textContent;
         writeBtn.disabled = true;
         writeBtn.textContent = '📱 Preparing...';
@@ -261,12 +295,12 @@ class PeebleApp extends HTMLElement {
             
             if (error.message.includes('timeout')) {
                 suggestion = '<br><small>💡 Try holding your phone closer to the NFC tag</small>';
+            } else if (error.message.includes('NDEFWriter') || error.message.includes('not supported')) {
+                suggestion = '<br><small>💡 Enable both chrome://flags/#enable-experimental-web-platform-features and chrome://flags/#enable-web-nfc</small>';
             } else if (error.message.includes('NotAllowedError') || error.message.includes('permission denied')) {
                 suggestion = '<br><small>💡 NFC permission denied. Check browser settings</small>';
             } else if (error.message.includes('NetworkError') || error.message.includes('Could not connect')) {
                 suggestion = '<br><small>💡 NFC tag may be too far away or incompatible</small>';
-            } else if (error.message.includes('NotSupportedError') || error.message.includes('not supported')) {
-                suggestion = '<br><small>💡 NFC writing not supported. Check Chrome flags</small>';
             }
             
             statusEl.innerHTML = `❌ <strong>Write failed:</strong> ${errorMessage}${suggestion}`;

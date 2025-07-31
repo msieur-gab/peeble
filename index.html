@@ -319,19 +319,31 @@
         window.addEventListener('load', () => {
             window.debugService.log('🪨 Peeble NFC app initialized');
             
-            // Check NFC support
-            if ('NDEFReader' in window) {
-                window.debugService.log('✅ NFC supported - ready for real tags!', 'success');
-                
-                // Also check if NDEFWriter is available
-                if ('NDEFWriter' in window) {
-                    window.debugService.log('✅ NFC writing supported', 'success');
-                } else {
-                    window.debugService.log('❌ NFC writing not supported', 'error');
-                }
+            // Check NFC support in detail
+            const nfcStatus = window.nfcService.getSupportStatus();
+            
+            if (nfcStatus.reading) {
+                window.debugService.log('✅ NFC reading supported', 'success');
             } else {
-                window.debugService.log('⚠️ NFC not supported - check Chrome flags', 'warning');
-                window.debugService.log('Enable: chrome://flags/#enable-experimental-web-platform-features', 'warning');
+                window.debugService.log('❌ NFC reading not supported', 'error');
+            }
+            
+            if (nfcStatus.writing) {
+                window.debugService.log('✅ NFC writing supported', 'success');
+            } else {
+                window.debugService.log('❌ NFC writing not supported', 'error');
+                window.debugService.log('💡 To enable NFC writing:', 'warning');
+                window.debugService.log('1. chrome://flags/#enable-experimental-web-platform-features → Enabled', 'warning');
+                window.debugService.log('2. chrome://flags/#enable-web-nfc → Enabled', 'warning');
+                window.debugService.log('3. Restart Chrome completely', 'warning');
+            }
+            
+            if (nfcStatus.both) {
+                window.debugService.log('🎉 Full NFC support - ready for complete testing!', 'success');
+            } else if (nfcStatus.reading) {
+                window.debugService.log('⚠️ Partial NFC support - can scan but not write', 'warning');
+            } else {
+                window.debugService.log('❌ No NFC support available', 'error');
             }
             
             // Check HTTPS requirement
@@ -347,6 +359,18 @@
                 window.debugService.log('✅ Android Chrome detected - optimal for NFC', 'success');
             } else {
                 window.debugService.log('⚠️ Not Android Chrome - NFC support may be limited', 'warning');
+            }
+            
+            // Show Chrome version if available
+            const chromeMatch = navigator.userAgent.match(/Chrome\/(\d+)/);
+            if (chromeMatch) {
+                const chromeVersion = parseInt(chromeMatch[1]);
+                window.debugService.log(`📱 Chrome version: ${chromeVersion}`, 'info');
+                if (chromeVersion >= 89) {
+                    window.debugService.log('✅ Chrome version supports NFC writing', 'success');
+                } else {
+                    window.debugService.log('❌ Chrome version too old for NFC writing (need 89+)', 'error');
+                }
             }
         });
     </script>

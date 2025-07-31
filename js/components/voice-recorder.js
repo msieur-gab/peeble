@@ -6,12 +6,25 @@ class VoiceRecorder extends HTMLElement {
         this.recordingData = null;
         this.waveformBars = [];
         this.animationFrame = null;
+        this.tagSerial = null; // Store the actual NFC tag serial number
     }
 
     connectedCallback() {
         this.render();
         this.setupEventListeners();
         window.debugService.log('🎤 Voice recorder component ready');
+    }
+
+    // Set the NFC tag serial number for encryption
+    setTagSerial(serial) {
+        this.tagSerial = serial;
+        window.debugService.log(`🎤 Voice recorder linked to NFC tag: ${serial}`, 'success');
+        
+        // Update UI to show tag is ready
+        const statusText = this.querySelector('#statusText');
+        if (statusText) {
+            statusText.textContent = `Ready to record (Tag: ${serial.substring(0, 8)}...)`;
+        }
     }
 
     render() {
@@ -259,22 +272,26 @@ class VoiceRecorder extends HTMLElement {
             return;
         }
         
+        if (!this.tagSerial) {
+            this.showError('No NFC tag detected. Please scan a blank NFC tag first.');
+            return;
+        }
+        
         const originalText = saveButton.textContent;
         saveButton.disabled = true;
         
         try {
             // Generate message identifiers
             const messageId = window.encryptionService.generateMessageId();
-            const nfcUuid = window.encryptionService.generateNfcUuid();
             const timestamp = Date.now();
             
-            window.debugService.log(`💾 Saving message: ${messageId}`);
+            window.debugService.log(`💾 Saving message: ${messageId} for tag ${this.tagSerial}`);
             
             // Update UI
             saveButton.textContent = '🔐 Encrypting...';
             
-            // Derive encryption key
-            const encryptionKey = await window.encryptionService.deriveKey(nfcUuid, timestamp);
+            // Derive encryption key using ACTUAL tag serial number
+            const encryptionKey = await window.encryptionService.deriveKey(this.tagSerial, timestamp);
             
             // Get audio buffer and encrypt
             const audioBuffer = await this.recordingData.audioBlob.arrayBuffer();
@@ -287,10 +304,10 @@ class VoiceRecorder extends HTMLElement {
             saveButton.textContent = '☁️ Uploading...';
             const ipfsHash = await window.storageService.uploadToIPFS(encryptedAudio, messageId);
             
-            // Create message data
+            // Create message data with ACTUAL tag serial
             const messageData = {
                 messageId,
-                nfcUuid,
+                tagSerial: this.tagSerial, // Use actual serial instead of random UUID
                 timestamp,
                 ipfsHash,
                 encryptedTranscript,
@@ -302,7 +319,7 @@ class VoiceRecorder extends HTMLElement {
             // Save locally (for testing purposes)
             this.saveMessageLocally(messageData);
             
-            // Create NFC URL
+            // Create NFC URL using actual tag serial
             const nfcUrl = window.URLParser.createNfcUrl(messageData);
             
             // Emit event to parent component
@@ -310,7 +327,7 @@ class VoiceRecorder extends HTMLElement {
                 detail: { messageData, nfcUrl }
             }));
             
-            window.debugService.log('💾 Message saved successfully!', 'success');
+            window.debugService.log('💾 Message saved successfully with tag serial!', 'success');
             
         } catch (error) {
             window.debugService.log(`💾 Save failed: ${error.message}`, 'error');

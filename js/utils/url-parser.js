@@ -7,7 +7,7 @@ class URLParser {
         const params = new URLSearchParams(hash);
         
         return {
-            uuid: params.get('uuid'),
+            serial: params.get('serial'), // Use actual tag serial instead of random UUID
             messageId: params.get('messageId'),
             timestamp: params.get('timestamp')
         };
@@ -15,11 +15,11 @@ class URLParser {
 
     // Create NFC URL with parameters
     static createNfcUrl(messageData) {
-        const { nfcUuid, messageId, timestamp } = messageData;
+        const { tagSerial, messageId, timestamp } = messageData;
         const baseUrl = window.location.origin + window.location.pathname;
         
         const params = new URLSearchParams();
-        params.set('uuid', nfcUuid);
+        params.set('serial', tagSerial); // Use actual tag serial
         params.set('messageId', messageId);
         params.set('timestamp', timestamp.toString());
         
@@ -30,7 +30,7 @@ class URLParser {
     static determineMode() {
         const params = this.parseParams();
         
-        if (params.uuid && params.messageId && params.timestamp) {
+        if (params.serial && params.messageId && params.timestamp) {
             return {
                 mode: 'READING',
                 params
@@ -45,12 +45,12 @@ class URLParser {
 
     // Validate URL parameters
     static validateParams(params) {
-        const { uuid, messageId, timestamp } = params;
+        const { serial, messageId, timestamp } = params;
         
         const errors = [];
         
-        if (!uuid || uuid.length < 16) {
-            errors.push('Invalid UUID');
+        if (!serial || serial.length < 8) {
+            errors.push('Invalid tag serial number');
         }
         
         if (!messageId || !messageId.startsWith('PBL-')) {
@@ -117,7 +117,7 @@ class URLParser {
             const urlObj = new URL(url);
             const params = new URLSearchParams(urlObj.hash.substring(1));
             
-            return !!(params.get('uuid') && 
+            return !!(params.get('serial') && 
                      params.get('messageId') && 
                      params.get('timestamp'));
         } catch {
@@ -133,7 +133,7 @@ class URLParser {
             const params = new URLSearchParams(hash);
             
             return {
-                uuid: params.get('uuid'),
+                serial: params.get('serial'),
                 messageId: params.get('messageId'),
                 timestamp: params.get('timestamp')
             };

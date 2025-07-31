@@ -173,15 +173,7 @@ class EncryptionService {
         return 'PBL-' + Math.random().toString(36).substr(2, 8).toUpperCase();
     }
 
-    generateNfcUuid() {
-        const chars = '0123456789ABCDEF';
-        let uuid = '';
-        for (let i = 0; i < 32; i++) {
-            if (i > 0 && i % 8 === 0) uuid += '-';
-            uuid += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return uuid;
-    }
+    // Note: No longer generating random UUIDs - we use actual NFC tag serial numbers
 }
 
 // Create global encryption service

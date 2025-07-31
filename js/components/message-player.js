@@ -1,7 +1,7 @@
 // Message player component for reading mode
 class MessagePlayer extends HTMLElement {
     static get observedAttributes() {
-        return ['uuid', 'message-id', 'timestamp'];
+        return ['serial', 'message-id', 'timestamp'];
     }
 
     constructor() {
@@ -58,16 +58,16 @@ class MessagePlayer extends HTMLElement {
 
     async loadMessage() {
         try {
-            const uuid = this.getAttribute('uuid');
+            const serial = this.getAttribute('serial');
             const messageId = this.getAttribute('message-id');
             const timestamp = this.getAttribute('timestamp');
             
-            window.debugService.log(`🎧 Loading message: ${messageId}`);
+            window.debugService.log(`🎧 Loading message: ${messageId} for tag ${serial}`);
             
-            this.updateStatus('🔐 Deriving decryption key...');
+            this.updateStatus('🔐 Deriving decryption key from tag serial...');
             
-            // Derive decryption key
-            const decryptionKey = await window.encryptionService.deriveKey(uuid, parseInt(timestamp));
+            // Derive decryption key using ACTUAL tag serial number
+            const decryptionKey = await window.encryptionService.deriveKey(serial, parseInt(timestamp));
             
             this.updateStatus('☁️ Downloading from IPFS...');
             
@@ -89,9 +89,9 @@ class MessagePlayer extends HTMLElement {
             // Download encrypted audio from IPFS
             const encryptedAudio = await window.storageService.downloadFromIPFS(ipfsHash);
             
-            this.updateStatus('🔓 Decrypting audio...');
+            this.updateStatus('🔓 Decrypting audio with tag serial...');
             
-            // Decrypt audio
+            // Decrypt audio using the same tag serial that was used for encryption
             const decryptedAudio = await window.encryptionService.decryptFromBinary(encryptedAudio, decryptionKey);
             
             // Create audio element
@@ -106,7 +106,7 @@ class MessagePlayer extends HTMLElement {
             playButton.disabled = false;
             playButton.textContent = '▶️';
             
-            window.debugService.log('🎧 Message loaded successfully!', 'success');
+            window.debugService.log('🎧 Message loaded successfully using tag serial!', 'success');
             
         } catch (error) {
             window.debugService.log(`🎧 Load failed: ${error.message}`, 'error');
