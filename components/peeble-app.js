@@ -146,6 +146,11 @@ class PeebleApp extends HTMLElement {
         } else {
             this.appContent.innerHTML = `<voice-recorder></voice-recorder>`;
         }
+
+        const voiceRecorder = this.appContent.querySelector('voice-recorder');
+        if (voiceRecorder) {
+            voiceRecorder.setStorageService(this.storageService);
+        }
         
         this.currentMode = 'CREATOR';
         this.showStatus('Ready to create a new Peeble message.', 'info');

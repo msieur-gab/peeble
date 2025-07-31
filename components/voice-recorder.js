@@ -378,6 +378,9 @@ class VoiceRecorder extends HTMLElement {
         debugLog('Save to IPFS button clicked. Starting save process...');
         const transcript = this.shadowRoot.getElementById('transcriptText').value.trim();
         
+        debugLog(`Transcript value before validation: '${transcript}'`);
+        debugLog(`Tag serial: '${this.tagSerial}'`);
+
         if (!this.tagSerial) {
             this.showStatus('Error: No NFC tag serial number available. Please scan a blank tag to start.', 'error');
             return;
@@ -399,12 +402,17 @@ class VoiceRecorder extends HTMLElement {
             return;
         }
 
+        debugLog('All validation checks passed. Entering try block.');
+
         const saveBtn = this.shadowRoot.getElementById('saveBtn');
         const originalText = saveBtn.textContent;
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving...';
 
+        debugLog('All validation checks passed. Entering try block to save.');
+
         try {
+            debugLog('Entering try block. Generating message ID and timestamp.');
             // Generate unique identifiers for this message
             const messageId = generateMessageId();
             const timestamp = Date.now();
@@ -432,6 +440,7 @@ class VoiceRecorder extends HTMLElement {
             const ipfsHash = await this.storageService.uploadToPinata(encryptedAudioBinary, `${messageId}-audio.encrypted`);
             debugLog(`IPFS upload complete: ${ipfsHash}`, 'success');
             
+            debugLog('Saving message metadata to localStorage...');
             // Store message metadata locally (simulating a saved "Peeble stone" for the reader)
             const messageData = {
                 messageId,
