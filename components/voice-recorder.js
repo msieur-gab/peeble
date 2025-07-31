@@ -41,6 +41,10 @@ class VoiceRecorder extends HTMLElement {
         this.render();
         this.setupEventListeners();
     }
+
+    static get observedAttributes() {
+        return ['serial'];
+    }
     
     /**
      * Lifecycle callback to handle when the component is inserted into the DOM.
@@ -221,6 +225,15 @@ handleSerialSet(serial) {
         this.shadowRoot.getElementById('transcriptText').addEventListener('input', () => this.updateCharCount());
     }
 
+
+    attributeChangedCallback(name, oldValue, newValue) {
+        if (name === 'serial' && oldValue !== newValue) {
+            this.tagSerial = newValue;
+            this.handleSerialSet(newValue);
+            debugLog(`Attribute 'serial' changed from ${oldValue} to ${newValue}`);
+        }
+    }
+    
     /**
      * Displays a specific step in the recording workflow.
      * @param {string} stepId - The ID of the step to display ('recording', 'editing', 'success').
