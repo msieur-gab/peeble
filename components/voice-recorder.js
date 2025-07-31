@@ -44,13 +44,8 @@ class VoiceRecorder extends HTMLElement {
      * Lifecycle callback to handle when the component is inserted into the DOM.
      */
     connectedCallback() {
-        this.tagSerial = this.getAttribute('serial') || null;
-        debugLog(`VoiceRecorder connected. Tag serial: ${this.tagSerial}`);
-        if (!this.tagSerial) {
-            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
-        } else {
-            this.showStatus('Tag scanned. You can now record your message.', 'success');
-        }
+        debugLog('VoiceRecorder connected. Waiting for serial from parent.');
+        // Initial status is handled by the parent calling setSerial.
     }
     
     /**
@@ -59,6 +54,20 @@ class VoiceRecorder extends HTMLElement {
      */
     setStorageService(service) {
         this.storageService = service;
+    }
+    
+    /**
+     * Sets the NFC tag serial number. Called by the parent component.
+     * @param {string} serial - The NFC tag's serial number.
+     */
+    setSerial(serial) {
+        this.tagSerial = serial;
+        debugLog(`VoiceRecorder received serial: ${this.tagSerial}.`);
+        if (!this.tagSerial) {
+            this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
+        } else {
+            this.showStatus('Tag scanned. You can now record your message.', 'success');
+        }
     }
 
     /**
