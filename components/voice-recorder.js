@@ -375,6 +375,7 @@ class VoiceRecorder extends HTMLElement {
      * @private
      */
     async saveToIPFSAndWriteNFC() {
+        debugLog('Save to IPFS button clicked. Starting save process...');
         const transcript = this.shadowRoot.getElementById('transcriptText').value.trim();
         
         if (!this.tagSerial) {
