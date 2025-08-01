@@ -31,8 +31,10 @@ class NFCHandler extends HTMLElement {
             <div id="nfc-status-indicator" style="text-align: center; margin-top: 20px; color: var(--secondary-color); font-size: 0.9em;">
                 🔒 Secure NFC Status: Initializing...
             </div>
+            <div id="nfc-permission-helper" style="display: none;"></div>
         `;
         this.statusIndicator = this.querySelector('#nfc-status-indicator');
+        this.permissionHelper = this.querySelector('#nfc-permission-helper');
     }
 
     setupEventListeners() {
@@ -55,21 +57,96 @@ class NFCHandler extends HTMLElement {
 
     initNfc() {
         const support = this.nfcService.isSupported();
-        let statusMessage = '🔒 Secure NFC Status: Initializing...';
-
-        if (support.read && (support.write || support.legacyWrite)) {
-            statusMessage = '🔒 Secure NFC Status: Ready. Tap a Peeble to scan securely.';
-            this.nfcService.startScanning();
-        } else if (support.read) {
-            statusMessage = '🔒 Secure NFC Status: Read-only. Writing not available.';
-            this.nfcService.startScanning();
-        } else {
-            statusMessage = '🔒 Secure NFC Status: Not supported on this device.';
+        
+        if (!support.read) {
+            const message = '🔒 Secure NFC Status: Not supported on this device.';
+            this.statusIndicator.textContent = message;
             debugLog('🔒 SECURITY: NFC API not supported.', 'warning');
+            return;
         }
 
-        this.statusIndicator.textContent = statusMessage;
-        debugLog(statusMessage, 'info');
+        if (support.read && (support.write || support.legacyWrite)) {
+            this.statusIndicator.textContent = '🔒 Secure NFC Status: Requesting permissions...';
+            debugLog('🔒 NFC: Full NFC support detected, starting scan...', 'info');
+        } else if (support.read) {
+            this.statusIndicator.textContent = '🔒 Secure NFC Status: Read-only mode...';
+            debugLog('🔒 NFC: Read-only NFC support detected, starting scan...', 'info');
+        }
+
+        // Start scanning - this should trigger Chrome's permission request
+        this.requestNfcPermissionAndStart();
+    }
+
+    async requestNfcPermissionAndStart() {
+        try {
+            debugLog('🔒 NFC: Attempting to start NFC scan (should trigger permission request)...', 'info');
+            
+            // This call should trigger Chrome's "Allow NFC access?" dialog
+            await this.nfcService.startScanning();
+            
+            // If we get here, permission was granted
+            this.statusIndicator.textContent = '🔒 Secure NFC Status: Ready. Tap a Peeble to scan securely.';
+            debugLog('✅ NFC scanning initiated successfully. Permission granted.', 'success');
+            
+        } catch (error) {
+            debugLog(`🔒 NFC: Permission/scan error: ${error.message}`, 'error');
+            
+            if (error.message.includes('permission') || error.message.includes('denied')) {
+                this.statusIndicator.textContent = '🔒 NFC Permission needed. Please allow NFC access and refresh.';
+                this.showPermissionHelp();
+            } else {
+                this.statusIndicator.textContent = `🔒 NFC Error: ${error.message}`;
+            }
+        }
+    }
+
+    showPermissionHelp() {
+        // Show helpful message in the dedicated helper div
+        this.permissionHelper.style.display = 'block';
+        this.permissionHelper.innerHTML = `
+            <div style="
+                background: #fff3cd; 
+                border: 2px solid #ffc107; 
+                border-radius: 10px; 
+                padding: 15px; 
+                margin: 15px 0; 
+                text-align: center;
+                font-size: 0.9em;
+            ">
+                <h4 style="color: #856404; margin-bottom: 8px;">🔧 NFC Permission Required</h4>
+                <p style="color: #664d03; margin: 5px 0;">Chrome should ask: <strong>"Allow NFC access?"</strong></p>
+                <p style="color: #664d03; margin: 5px 0;">If you missed it, try refreshing or manually enable NFC in site settings.</p>
+                <div style="margin-top: 10px;">
+                    <button onclick="location.reload()" style="
+                        background: #ffc107; 
+                        border: none; 
+                        padding: 8px 16px; 
+                        border-radius: 5px; 
+                        cursor: pointer; 
+                        margin: 5px;
+                        color: #856404;
+                        font-weight: bold;
+                    ">🔄 Refresh Page</button>
+                    <button onclick="document.querySelector('nfc-handler').retryNfcPermission()" style="
+                        background: #17a2b8; 
+                        border: none; 
+                        padding: 8px 16px; 
+                        border-radius: 5px; 
+                        cursor: pointer; 
+                        margin: 5px;
+                        color: white;
+                        font-weight: bold;
+                    ">🔓 Retry Permission</button>
+                </div>
+            </div>
+        `;
+    }
+
+    // Method to retry NFC permission (called from button)
+    retryNfcPermission() {
+        this.permissionHelper.style.display = 'none';
+        this.statusIndicator.textContent = '🔒 Requesting NFC permission...';
+        this.requestNfcPermissionAndStart();
     }
 
     updateStatusFromState(state) {
