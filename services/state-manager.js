@@ -114,7 +114,7 @@ class StateManager {
             const keyData = JSON.parse(keyDataStr);
             const age = Date.now() - keyData.timestamp;
             
-            debugLog(`🔒 SECURITY: Found physical key, age: ${age}ms`);
+            debugLog(`🔒 SECURITY: Found physical key, age: ${age}ms, serial: ${keyData.serial}`);
             
             if (age > 60000) { // Increased to 60 seconds max age
                 debugLog('🔒 SECURITY: Physical key expired (>60s), removing');
@@ -139,14 +139,11 @@ class StateManager {
                 return;
             }
 
-            debugLog(`🔒 SECURITY: Physical key restored: ${keyData.serial}`);
+            debugLog(`🔒 SECURITY: Physical key restored successfully: ${keyData.serial}`, 'success');
             this.setState({
                 tagSerial: keyData.serial,
                 physicalKeyTimestamp: keyData.timestamp
             });
-            
-            // FIX: Don't clear the key immediately - let it expire naturally or be cleared after successful load
-            // sessionStorage.removeItem('peeble-physical-key');
             
             // Check if we can now auto-load
             this.checkAndTriggerAutoLoad();
@@ -160,7 +157,7 @@ class StateManager {
     checkAndTriggerAutoLoad() {
         const { appMode, tagSerial, messageId, ipfsHash, storageService, currentStep } = this._state;
         
-        debugLog(`🔒 AUTO-LOAD CHECK: Mode=${appMode}, Serial=${!!tagSerial}, MessageId=${!!messageId}, Hash=${!!ipfsHash}, Storage=${!!storageService}, Step=${currentStep}`);
+        debugLog(`🔒 AUTO-LOAD CHECK: Mode=${appMode}, Serial=${!!tagSerial ? tagSerial : 'MISSING'}, MessageId=${!!messageId}, Hash=${!!ipfsHash}, Storage=${!!storageService}, Step=${currentStep}`);
         
         if (appMode === 'READER' && 
             tagSerial && 
@@ -192,48 +189,74 @@ class StateManager {
 
     // NFC Event Handlers
     handleNfcTagScanned(data) {
-        debugLog(`🔒 SECURITY: NFC tag scanned - URL: ${!!data.url}, Serial: ${!!data.serial}`);
-        debugLog(`🔒 SECURITY: Current nfcWriteMode: ${this._state.nfcWriteMode}, writeUrlQueue: ${!!this._state.writeUrlQueue}`);
+        debugLog(`🔍 STATE MANAGER: NFC tag scanned event received`, 'info');
+        debugLog(`   - URL present: ${!!data.url}`, 'info');
+        debugLog(`   - Serial received: ${data.serial || 'NULL'}`, 'info');
+        debugLog(`   - Current nfcWriteMode: ${this._state.nfcWriteMode}`, 'info');
+        debugLog(`   - Write queue: ${!!this._state.writeUrlQueue}`, 'info');
         
         // PRIORITY 1: Check if we're in NFC write mode (ALWAYS check this first!)
         if (this._state.nfcWriteMode && this._state.writeUrlQueue) {
-            debugLog(`🔒 SECURITY: In write mode - attempting to write URL to tag`);
+            debugLog(`🔒 SECURITY: In write mode - attempting to write URL to tag with serial: ${data.serial}`);
             eventBus.publish('nfc-write-url', { url: this._state.writeUrlQueue, serial: data.serial });
             return;
         }
         
         // PRIORITY 2: Check if tag has a URL (reading mode)
         if (data.url && this.isSecurePeebleUrl(data.url)) {
-            debugLog(`🔒 SECURITY: Tag contains secure Peeble URL - entering read mode`);
+            debugLog(`🔒 SECURITY: Tag contains secure Peeble URL - processing with serial: ${data.serial}`);
             
             // Parse the URL to get message parameters
-            const urlObj = new URL(data.url);
-            const params = new URLSearchParams(urlObj.hash.substring(1));
-            const messageId = params.get('messageId');
-            const ipfsHash = params.get('ipfsHash');
+            let urlObj, params, messageId, ipfsHash;
+            try {
+                urlObj = new URL(data.url);
+                params = new URLSearchParams(urlObj.hash.substring(1));
+                messageId = params.get('messageId');
+                ipfsHash = params.get('ipfsHash');
+                debugLog(`🔍 URL PARSING: MessageId=${messageId}, IpfsHash=${ipfsHash}`);
+            } catch (error) {
+                debugLog(`❌ URL PARSING ERROR: ${error.message}`, 'error');
+                this.setState({
+                    statusMessage: '🔒 Invalid message URL format',
+                    statusType: 'error'
+                });
+                return;
+            }
             
             if (messageId && ipfsHash) {
-                // If we're already on the same message URL, just use the physical key
+                // Check if we're already on the same message URL
                 const currentParams = URLParser.getParams();
+                debugLog(`🔍 URL COMPARISON: Current MessageId=${currentParams.messageId}, Current Hash=${currentParams.ipfsHash}`);
+                
                 if (currentParams.messageId === messageId && currentParams.ipfsHash === ipfsHash) {
-                    debugLog('🔒 SECURITY: Same message URL - using physical key directly');
+                    debugLog('🔒 SECURITY: Same message URL - using physical key directly', 'success');
+                    debugLog(`🔍 SETTING SERIAL IN STATE: ${data.serial}`, 'info');
+                    
                     this.setState({
                         appMode: 'READER',
-                        tagSerial: data.serial,
+                        tagSerial: data.serial,  // FIX: Make sure this is actually being set
                         messageId: messageId,
                         ipfsHash: ipfsHash,
-                        currentStep: 'waiting',  // Keep as waiting, let auto-load set to loading
-                        statusMessage: '🔒 Physical key captured, loading message...',
+                        currentStep: 'waiting',
+                        statusMessage: '🔒 Physical key captured, preparing to load...',
                         statusType: 'info'
                     });
                     
-                    // Use the new auto-load check method
-                    this.checkAndTriggerAutoLoad();
+                    // Immediate verification that serial was set
+                    const currentState = this.getState();
+                    debugLog(`🔍 STATE VERIFICATION: tagSerial after setState = ${currentState.tagSerial}`, currentState.tagSerial ? 'success' : 'error');
+                    
+                    // Use the auto-load check method
+                    setTimeout(() => {
+                        debugLog('🔍 TRIGGERING AUTO-LOAD CHECK AFTER SERIAL SET...');
+                        this.checkAndTriggerAutoLoad();
+                    }, 100); // Small delay to ensure state is fully updated
                     return;
                 }
             }
             
-            // FIX: Store physical key with more robust data and don't navigate immediately if URL is malformed
+            // Different URL - store for navigation
+            debugLog(`🔒 SECURITY: Different URL detected, storing physical key for navigation`);
             try {
                 const keyData = {
                     serial: data.serial,
@@ -243,7 +266,7 @@ class StateManager {
                     ipfsHash: ipfsHash
                 };
                 sessionStorage.setItem('peeble-physical-key', JSON.stringify(keyData));
-                debugLog(`🔒 SECURITY: Physical key stored for navigation - Serial: ${data.serial}, MessageId: ${messageId}`);
+                debugLog(`🔒 SECURITY: Physical key stored for navigation - Serial: ${data.serial}, MessageId: ${messageId}`, 'success');
                 
                 // Navigate to the URL (this will trigger a page reload)
                 debugLog('🔒 SECURITY: Navigating to secure message URL');
@@ -252,7 +275,7 @@ class StateManager {
             } catch (error) {
                 debugLog(`🔒 SECURITY: Error storing physical key: ${error.message}`, 'error');
                 this.setState({
-                    statusMessage: '🔒 Invalid message URL format',
+                    statusMessage: '🔒 Failed to store physical key',
                     statusType: 'error'
                 });
                 return;
@@ -260,12 +283,12 @@ class StateManager {
         }
         
         // PRIORITY 3: Blank tag - only for creation mode if not in write mode
-        debugLog('🔒 SECURITY: Blank tag detected - entering creation mode');
+        debugLog(`🔒 SECURITY: Blank tag detected - entering creation mode with serial: ${data.serial}`);
         this.handleBlankNfcScanned(data.serial);
     }
 
     handleBlankNfcScanned(serial) {
-        debugLog(`🔒 SECURITY: Blank NFC tag scanned: ${serial}`);
+        debugLog(`🔒 SECURITY: Handling blank NFC tag with serial: ${serial}`, 'success');
         this.setState({
             appMode: 'CREATOR',
             tagSerial: serial,
@@ -273,6 +296,10 @@ class StateManager {
             statusMessage: '🔒 Physical key captured. Ready to record.',
             statusType: 'success'
         });
+        
+        // Verification
+        const currentState = this.getState();
+        debugLog(`🔍 BLANK TAG STATE VERIFICATION: tagSerial = ${currentState.tagSerial}`, currentState.tagSerial === serial ? 'success' : 'error');
     }
 
     // Recording Event Handlers
@@ -399,6 +426,8 @@ class StateManager {
     async handleLoadSecureMessage() {
         const { tagSerial, messageId, ipfsHash, storageService, encryptionService } = this._state;
         
+        debugLog(`🔍 LOAD MESSAGE: Starting with serial=${tagSerial}, messageId=${messageId}, hash=${ipfsHash}, storage=${!!storageService}`);
+        
         if (!tagSerial || !messageId || !ipfsHash || !storageService) {
             debugLog('🔒 SECURITY: Missing parameters for secure load', 'warning');
             debugLog(`🔒 PARAMS: Serial=${!!tagSerial}, MessageId=${!!messageId}, Hash=${!!ipfsHash}, Storage=${!!storageService}`);
@@ -425,6 +454,7 @@ class StateManager {
 
         try {
             // Download package
+            debugLog(`🔍 DOWNLOADING: Using serial ${tagSerial} to decrypt message ${messageId}`);
             const messagePackage = await storageService.downloadMessagePackage(ipfsHash);
             
             // Verify message ID
@@ -584,6 +614,11 @@ class StateManager {
         const previousState = this._state;
         const updatedKeys = [];
 
+        // FIX: Special handling for tagSerial to ensure it's properly tracked
+        if ('tagSerial' in newState) {
+            debugLog(`🔍 SETSTATE: tagSerial changing from '${previousState.tagSerial}' to '${newState.tagSerial}'`, newState.tagSerial ? 'success' : 'warning');
+        }
+
         for (const key in newState) {
             if (previousState[key] !== newState[key]) {
                 this._state[key] = newState[key];
@@ -593,6 +628,12 @@ class StateManager {
 
         if (updatedKeys.length > 0) {
             debugLog(`State updated: ${updatedKeys.join(', ')}`, 'info');
+            
+            // FIX: Special verification for tagSerial
+            if (updatedKeys.includes('tagSerial')) {
+                debugLog(`🔍 TAGSERIAL UPDATE VERIFIED: New value = '${this._state.tagSerial}'`, this._state.tagSerial ? 'success' : 'error');
+            }
+            
             eventBus.publish('state-change', {
                 ...this._state,
                 updatedKeys

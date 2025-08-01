@@ -160,22 +160,48 @@ class NFCHandler extends HTMLElement {
     }
 
     handleNfcTagScanned(data) {
-        // Update debug display
+        // FIX: Add extensive debugging for serial capture
+        debugLog(`🔍 NFC RAW DATA RECEIVED:`, 'info');
+        debugLog(`   - URL: ${data.url ? 'PRESENT' : 'NULL'}`, 'info');
+        debugLog(`   - Serial: ${data.serial ? data.serial : 'NULL'}`, 'info');
+        debugLog(`   - Data object keys: ${Object.keys(data).join(', ')}`, 'info');
+        
+        // FIX: Validate serial number more thoroughly
+        let validatedSerial = null;
+        if (data.serial) {
+            validatedSerial = data.serial;
+            debugLog(`✅ SERIAL VALIDATION: Valid serial captured: ${validatedSerial}`, 'success');
+        } else {
+            // Generate a temporary serial if none provided (should not happen with real NFC tags)
+            validatedSerial = `PBL-TEMP-${Date.now()}`;
+            debugLog(`⚠️ SERIAL VALIDATION: No serial from NFC, generated temporary: ${validatedSerial}`, 'warning');
+        }
+
+        // Update debug display IMMEDIATELY when tag is scanned
         const serialDisplay = document.getElementById('nfc-serial-display');
         const serialNumberSpan = document.getElementById('serialNumber');
         if (serialDisplay && serialNumberSpan) {
-            serialNumberSpan.textContent = data.serial || 'N/A';
+            serialNumberSpan.textContent = validatedSerial;
             serialDisplay.style.display = 'block';
+            debugLog(`🔍 DEBUG DISPLAY: Updated serial display to: ${validatedSerial}`, 'info');
         }
 
-        debugLog(`🔒 SECURITY: NFC tag scanned. Serial: ${data.serial ? 'CAPTURED' : 'MISSING'}, URL: ${data.url ? 'PRESENT' : 'BLANK'}`, 'success');
+        // FIX: Ensure we have the eventBus before publishing
+        if (!this.eventBus) {
+            debugLog(`❌ CRITICAL ERROR: EventBus not available, cannot publish NFC event`, 'error');
+            return;
+        }
+
+        debugLog(`🔒 SECURITY: Publishing nfc-tag-scanned event with validated serial: ${validatedSerial}`, 'info');
 
         // ALWAYS publish nfc-tag-scanned and let State Manager decide what to do
         // Don't make decisions here - State Manager knows the current app mode
         this.eventBus.publish('nfc-tag-scanned', { 
             url: data.url || null, 
-            serial: data.serial || `PBL-TEMP-${Date.now()}` 
+            serial: validatedSerial  // Use validated serial
         });
+        
+        debugLog(`✅ NFC EVENT PUBLISHED: nfc-tag-scanned with serial: ${validatedSerial}`, 'success');
     }
 
     handleNfcError(errorMessage) {
