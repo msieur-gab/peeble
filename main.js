@@ -12,11 +12,14 @@ import './components/peeble-app.js';
 import './components/nfc-handler.js';
 
 // =======================================================
-// === DEMO SETUP: ENTER PINATA CREDENTIALS HERE ===
+// === DEVELOPMENT SETUP: PINATA CREDENTIALS ===
 // =======================================================
-// For a quick demo, paste your Pinata API credentials here.
-const DEFAULT_PINATA_API_KEY = ''; // <-- Paste your API Key here
-const DEFAULT_PINATA_SECRET = ''; // <-- Paste your Secret here
+// Hardcoded for development/testing - fill these in:
+const DEFAULT_PINATA_API_KEY = '54e63158b8fd4788f2ef'; // <-- Paste your API Key here
+const DEFAULT_PINATA_SECRET = '9586c0caa8bc183e8023f7e3b34c5b1e5a4672ca94f0d4d4bdddf8b4fe50e906'; // <-- Paste your Secret here
+
+// Set to true to force use hardcoded keys (ignore localStorage)
+const FORCE_USE_HARDCODED_KEYS = true;
 // =======================================================
 
 let storageService; // Global instance of StorageService
@@ -25,9 +28,16 @@ let audioServiceAdapter; // Audio service adapter
 /**
  * Initializes the Pinata API credentials and tests the connection.
  * This function is exposed globally for the HTML button.
+ * Note: In development mode with hardcoded keys, this may not be needed.
  * @global
  */
 window.testPinataConnection = async function() {
+    if (FORCE_USE_HARDCODED_KEYS) {
+        debugLog('🔧 Development mode active - using hardcoded credentials. Test skipped.', 'info');
+        document.getElementById('apiSetup').style.display = 'none';
+        return;
+    }
+
     debugLog('Initiating Pinata connection test from main.js...');
     const apiKeyInput = document.getElementById('pinataApiKey');
     const secretInput = document.getElementById('pinataSecret');
@@ -78,68 +88,102 @@ window.testPinataConnection = async function() {
 document.addEventListener('DOMContentLoaded', () => {
     debugLog('DOM Content Loaded. Initializing Reactive Peeble App.');
 
-    // Initialize StorageService with credentials from state manager
-    const { pinataApiKey, pinataSecret } = stateManager.getState();
-    storageService = new StorageService(
-        pinataApiKey || DEFAULT_PINATA_API_KEY, 
-        pinataSecret || DEFAULT_PINATA_SECRET
-    );
+    // Determine which credentials to use
+    let pinataApiKey, pinataSecret;
+    
+    if (FORCE_USE_HARDCODED_KEYS && DEFAULT_PINATA_API_KEY && DEFAULT_PINATA_SECRET) {
+        // Use hardcoded keys for development
+        pinataApiKey = DEFAULT_PINATA_API_KEY;
+        pinataSecret = DEFAULT_PINATA_SECRET;
+        debugLog('🔧 DEVELOPMENT MODE: Using hardcoded Pinata credentials.', 'warning');
+    } else {
+        // Use stored credentials or fallback to defaults
+        const state = stateManager.getState();
+        pinataApiKey = state.pinataApiKey || DEFAULT_PINATA_API_KEY;
+        pinataSecret = state.pinataSecret || DEFAULT_PINATA_SECRET;
+    }
+
+    // Initialize StorageService
+    storageService = new StorageService(pinataApiKey, pinataSecret);
 
     // Initialize Audio Service Adapter
     audioServiceAdapter = new AudioServiceAdapter(eventBus);
 
-    // Set the storage service in state manager if credentials are available
-    if (pinataApiKey && pinataSecret) {
+    // Auto-configure storage service if we have valid credentials
+    if (pinataApiKey && pinataSecret && pinataApiKey !== 'YOUR_PINATA_API_KEY_HERE') {
+        // Update state manager with the credentials
+        stateManager.setState({ 
+            pinataApiKey: pinataApiKey, 
+            pinataSecret: pinataSecret 
+        });
         stateManager.setStorageService(storageService);
-        debugLog('StorageService automatically configured with saved credentials.', 'success');
+        debugLog('✅ StorageService automatically configured.', 'success');
+        
+        // Auto-hide API setup if using hardcoded keys
+        if (FORCE_USE_HARDCODED_KEYS) {
+            document.getElementById('apiSetup').style.display = 'none';
+            debugLog('🔧 API setup hidden - using development credentials.', 'info');
+        }
     }
 
-    // Populate API key inputs if saved
+    // Populate API key inputs (for UI display, even if using hardcoded)
     const apiKeyInput = document.getElementById('pinataApiKey');
     const secretInput = document.getElementById('pinataSecret');
-    if (apiKeyInput) apiKeyInput.value = pinataApiKey || DEFAULT_PINATA_API_KEY;
-    if (secretInput) secretInput.value = pinataSecret || DEFAULT_PINATA_SECRET;
+    if (apiKeyInput) apiKeyInput.value = pinataApiKey;
+    if (secretInput) secretInput.value = pinataSecret;
 
-    // Hide API setup if credentials are already present
-    const hasCredentials = !!pinataApiKey && !!pinataSecret;
+    // Hide API setup if credentials are configured
+    const hasCredentials = pinataApiKey && pinataSecret && pinataApiKey !== 'YOUR_PINATA_API_KEY_HERE';
     if (hasCredentials) {
         document.getElementById('apiSetup').style.display = 'none';
-        debugLog('Saved Pinata credentials loaded automatically.', 'success');
+        debugLog('Pinata credentials configured and ready.', 'success');
     } else {
-        debugLog('Pinata credentials not found. Please enter them.', 'warning');
+        debugLog('⚠️ Pinata credentials needed. Please fill in DEFAULT_PINATA_API_KEY and DEFAULT_PINATA_SECRET in main.js', 'warning');
     }
 
-    // Add event listeners for API key input changes to save them
-    if (apiKeyInput) {
-        apiKeyInput.addEventListener('change', (e) => {
-            const newApiKey = e.target.value;
-            stateManager.setState({ pinataApiKey: newApiKey });
-            localStorage.setItem('pinataApiKey', newApiKey);
-            storageService.setCredentials(newApiKey, storageService.secret);
-            
-            // Update storage service in state if both credentials are present
-            if (newApiKey && stateManager.getState().pinataSecret) {
-                stateManager.setStorageService(storageService);
-            }
-            
-            debugLog('Pinata API Key updated in localStorage.', 'info');
-        });
-    }
-    
-    if (secretInput) {
-        secretInput.addEventListener('change', (e) => {
-            const newSecret = e.target.value;
-            stateManager.setState({ pinataSecret: newSecret });
-            localStorage.setItem('pinataSecret', newSecret);
-            storageService.setCredentials(storageService.apiKey, newSecret);
-            
-            // Update storage service in state if both credentials are present
-            if (newSecret && stateManager.getState().pinataApiKey) {
-                stateManager.setStorageService(storageService);
-            }
-            
-            debugLog('Pinata Secret updated in localStorage.', 'info');
-        });
+    // Add event listeners for API key input changes (only if not forcing hardcoded)
+    if (!FORCE_USE_HARDCODED_KEYS) {
+        if (apiKeyInput) {
+            apiKeyInput.addEventListener('change', (e) => {
+                const newApiKey = e.target.value;
+                stateManager.setState({ pinataApiKey: newApiKey });
+                localStorage.setItem('pinataApiKey', newApiKey);
+                storageService.setCredentials(newApiKey, storageService.secret);
+                
+                // Update storage service in state if both credentials are present
+                if (newApiKey && stateManager.getState().pinataSecret) {
+                    stateManager.setStorageService(storageService);
+                }
+                
+                debugLog('Pinata API Key updated.', 'info');
+            });
+        }
+        
+        if (secretInput) {
+            secretInput.addEventListener('change', (e) => {
+                const newSecret = e.target.value;
+                stateManager.setState({ pinataSecret: newSecret });
+                localStorage.setItem('pinataSecret', newSecret);
+                storageService.setCredentials(storageService.apiKey, newSecret);
+                
+                // Update storage service in state if both credentials are present
+                if (newSecret && stateManager.getState().pinataApiKey) {
+                    stateManager.setStorageService(storageService);
+                }
+                
+                debugLog('Pinata Secret updated.', 'info');
+            });
+        }
+    } else {
+        // Disable inputs when using hardcoded keys
+        if (apiKeyInput) {
+            apiKeyInput.disabled = true;
+            apiKeyInput.style.opacity = '0.6';
+        }
+        if (secretInput) {
+            secretInput.disabled = true;
+            secretInput.style.opacity = '0.6';
+        }
     }
 
     // Initialize the main PeebleApp component
@@ -159,6 +203,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     debugLog('🎉 Reactive Peeble App initialization complete!');
+    
+    // Log current credential status
+    if (FORCE_USE_HARDCODED_KEYS) {
+        debugLog(`🔧 DEVELOPMENT MODE ACTIVE - API Key: ${pinataApiKey.substring(0, 8)}...`, 'warning');
+    }
 });
 
 // For debugging purposes, expose key objects globally

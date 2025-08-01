@@ -15,9 +15,9 @@ class StateManager {
             appMode: 'CREATOR', // 'CREATOR' or 'READER'
             currentStep: 'waiting', // 'waiting', 'recording', 'editing', 'success', 'loading', 'playing', 'error'
             
-            // API credentials
-            pinataApiKey: localStorage.getItem('pinataApiKey') || '',
-            pinataSecret: localStorage.getItem('pinataSecret') || '',
+            // API credentials - will be set by main.js based on development mode
+            pinataApiKey: '',
+            pinataSecret: '',
             
             // NFC/Security state
             tagSerial: null,
