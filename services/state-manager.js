@@ -142,14 +142,17 @@ class StateManager {
         debugLog(`🔒 SECURITY: NFC tag scanned - URL: ${!!data.url}, Serial: ${!!data.serial}`);
         debugLog(`🔒 SECURITY: Current nfcWriteMode: ${this._state.nfcWriteMode}, writeUrlQueue: ${!!this._state.writeUrlQueue}`);
         
+        // PRIORITY 1: Check if we're in NFC write mode (ALWAYS check this first!)
         if (this._state.nfcWriteMode && this._state.writeUrlQueue) {
-            // Handle write mode
-            debugLog(`🔒 SECURITY: In write mode, publishing nfc-write-url event`);
+            debugLog(`🔒 SECURITY: In write mode - attempting to write URL to tag`);
             eventBus.publish('nfc-write-url', { url: this._state.writeUrlQueue, serial: data.serial });
             return;
         }
         
+        // PRIORITY 2: Check if tag has a URL (reading mode)
         if (data.url && this.isSecurePeebleUrl(data.url)) {
+            debugLog(`🔒 SECURITY: Tag contains secure Peeble URL - entering read mode`);
+            
             // Parse the URL to get message parameters
             const urlObj = new URL(data.url);
             const params = new URLSearchParams(urlObj.hash.substring(1));
@@ -188,17 +191,12 @@ class StateManager {
             // Navigate to the URL (this will trigger a page reload)
             debugLog('🔒 SECURITY: Navigating to secure message URL');
             window.location.href = data.url;
-        } else if (!data.url) {
-            // Blank tag for creation
-            debugLog('🔒 SECURITY: Blank tag detected, checking if in write mode...');
-            if (this._state.nfcWriteMode && this._state.writeUrlQueue) {
-                debugLog('🔒 SECURITY: Blank tag + write mode = writing URL');
-                eventBus.publish('nfc-write-url', { url: this._state.writeUrlQueue, serial: data.serial });
-            } else {
-                debugLog('🔒 SECURITY: Blank tag + creation mode');
-                this.handleBlankNfcScanned(data.serial);
-            }
+            return;
         }
+        
+        // PRIORITY 3: Blank tag - only for creation mode if not in write mode
+        debugLog('🔒 SECURITY: Blank tag detected - entering creation mode');
+        this.handleBlankNfcScanned(data.serial);
     }
 
     handleBlankNfcScanned(serial) {

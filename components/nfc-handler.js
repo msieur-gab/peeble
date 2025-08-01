@@ -93,12 +93,12 @@ class NFCHandler extends HTMLElement {
 
         debugLog(`🔒 SECURITY: NFC tag scanned. Serial: ${data.serial ? 'CAPTURED' : 'MISSING'}, URL: ${data.url ? 'PRESENT' : 'BLANK'}`, 'success');
 
-        // Just publish the raw scan data - let state manager handle the logic
-        if (data.url) {
-            this.eventBus.publish('nfc-tag-scanned', { url: data.url, serial: data.serial });
-        } else {
-            this.eventBus.publish('blank-nfc-scanned', data.serial || `PBL-TEMP-${Date.now()}`);
-        }
+        // ALWAYS publish nfc-tag-scanned and let State Manager decide what to do
+        // Don't make decisions here - State Manager knows the current app mode
+        this.eventBus.publish('nfc-tag-scanned', { 
+            url: data.url || null, 
+            serial: data.serial || `PBL-TEMP-${Date.now()}` 
+        });
     }
 
     handleNfcError(errorMessage) {
@@ -107,10 +107,24 @@ class NFCHandler extends HTMLElement {
     }
 
     async writeToNfcTag(url) {
+        debugLog(`🔒 NFC: Starting write process for URL: ${url.substring(0, 50)}...`);
+        
+        const support = this.nfcService.isSupported();
+        if (!support.write && !support.legacyWrite) {
+            const errorMsg = 'NFC writing not supported on this device';
+            debugLog(`🔒 NFC: ${errorMsg}`, 'error');
+            this.statusIndicator.textContent = `🔒 ${errorMsg}`;
+            return;
+        }
+
         try {
             this.statusIndicator.textContent = '🔒 Writing secure URL...';
+            debugLog('🔒 NFC: Calling nfcService.writeUrl()...');
+            
             await this.nfcService.writeUrl(url);
+            
             debugLog('🔒 SECURITY: Secure URL written to NFC tag successfully.', 'success');
+            this.statusIndicator.textContent = '🔒 Write successful!';
             
             // Publish success event
             this.eventBus.publish('nfc-write-complete');
@@ -118,6 +132,9 @@ class NFCHandler extends HTMLElement {
         } catch (error) {
             debugLog(`🔒 SECURITY: Failed to write secure URL: ${error.message}`, 'error');
             this.statusIndicator.textContent = `🔒 Write failed: ${error.message}`;
+            
+            // You might want to keep the URL in queue for retry
+            debugLog('🔒 NFC: Write failed, URL remains in queue for retry');
         }
     }
 }
