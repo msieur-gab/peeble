@@ -2,14 +2,13 @@
 
 import { debugLog } from './services/utils.js';
 import { StorageService } from './services/storage.js';
-import { stateManager } from './services/state-manager.js'; // Import state manager
-import { eventBus } from './services/pubsub.js'; // Import event bus
+import { stateManager } from './services/state-manager.js';
+import { eventBus } from './services/pubsub.js';
+import { AudioServiceAdapter } from './services/audio-service-adapter.js';
 
 // Import all components to ensure they are registered
 import './components/debug-console.js';
 import './components/peeble-app.js';
-import './components/voice-recorder.js';
-import './components/message-player.js';
 import './components/nfc-handler.js';
 
 // =======================================================
@@ -21,7 +20,7 @@ const DEFAULT_PINATA_SECRET = ''; // <-- Paste your Secret here
 // =======================================================
 
 let storageService; // Global instance of StorageService
-let peebleApp; // Reference to the main component
+let audioServiceAdapter; // Audio service adapter
 
 /**
  * Initializes the Pinata API credentials and tests the connection.
@@ -54,6 +53,10 @@ window.testPinataConnection = async function() {
             stateManager.setState({ pinataApiKey: apiKey, pinataSecret: secret });
             localStorage.setItem('pinataApiKey', apiKey);
             localStorage.setItem('pinataSecret', secret);
+            
+            // Set the storage service in state manager
+            stateManager.setStorageService(storageService);
+            
             document.getElementById('apiSetup').style.display = 'none';
             debugLog('Pinata connection successful!', 'success');
             debugLog('Pinata credentials saved and connection verified.', 'success');
@@ -73,11 +76,23 @@ window.testPinataConnection = async function() {
  * Runs when the DOM is fully loaded.
  */
 document.addEventListener('DOMContentLoaded', () => {
-    debugLog('DOM Content Loaded. Initializing Peeble App.');
+    debugLog('DOM Content Loaded. Initializing Reactive Peeble App.');
 
     // Initialize StorageService with credentials from state manager
     const { pinataApiKey, pinataSecret } = stateManager.getState();
-    storageService = new StorageService(pinataApiKey || DEFAULT_PINATA_API_KEY, pinataSecret || DEFAULT_PINATA_SECRET);
+    storageService = new StorageService(
+        pinataApiKey || DEFAULT_PINATA_API_KEY, 
+        pinataSecret || DEFAULT_PINATA_SECRET
+    );
+
+    // Initialize Audio Service Adapter
+    audioServiceAdapter = new AudioServiceAdapter(eventBus);
+
+    // Set the storage service in state manager if credentials are available
+    if (pinataApiKey && pinataSecret) {
+        stateManager.setStorageService(storageService);
+        debugLog('StorageService automatically configured with saved credentials.', 'success');
+    }
 
     // Populate API key inputs if saved
     const apiKeyInput = document.getElementById('pinataApiKey');
@@ -97,37 +112,55 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add event listeners for API key input changes to save them
     if (apiKeyInput) {
         apiKeyInput.addEventListener('change', (e) => {
-            stateManager.setState({ pinataApiKey: e.target.value });
-            localStorage.setItem('pinataApiKey', e.target.value);
-            storageService.setCredentials(e.target.value, storageService.secret);
+            const newApiKey = e.target.value;
+            stateManager.setState({ pinataApiKey: newApiKey });
+            localStorage.setItem('pinataApiKey', newApiKey);
+            storageService.setCredentials(newApiKey, storageService.secret);
+            
+            // Update storage service in state if both credentials are present
+            if (newApiKey && stateManager.getState().pinataSecret) {
+                stateManager.setStorageService(storageService);
+            }
+            
             debugLog('Pinata API Key updated in localStorage.', 'info');
         });
     }
+    
     if (secretInput) {
         secretInput.addEventListener('change', (e) => {
-            stateManager.setState({ pinataSecret: e.target.value });
-            localStorage.setItem('pinataSecret', e.target.value);
-            storageService.setCredentials(storageService.apiKey, e.target.value);
+            const newSecret = e.target.value;
+            stateManager.setState({ pinataSecret: newSecret });
+            localStorage.setItem('pinataSecret', newSecret);
+            storageService.setCredentials(storageService.apiKey, newSecret);
+            
+            // Update storage service in state if both credentials are present
+            if (newSecret && stateManager.getState().pinataApiKey) {
+                stateManager.setStorageService(storageService);
+            }
+            
             debugLog('Pinata Secret updated in localStorage.', 'info');
         });
     }
 
-    // Get the main PeebleApp component
-    peebleApp = document.querySelector('peeble-app');
+    // Initialize the main PeebleApp component
+    const peebleApp = document.querySelector('peeble-app');
     if (peebleApp) {
-        // Pass the singletons to the main component
         peebleApp.initialize({ stateManager, eventBus, storageService });
     } else {
         debugLog('PeebleApp component not found in the DOM.', 'error');
     }
 
-    // Initialize NFC Handler - it will start scanning on its own
+    // Initialize NFC Handler
     const nfcHandler = document.querySelector('nfc-handler');
-    if (!nfcHandler) {
+    if (nfcHandler) {
+        nfcHandler.initialize({ stateManager, eventBus });
+    } else {
         debugLog('NFC Handler component not found in the DOM.', 'error');
     }
 
-    debugLog('Peeble App initialization complete.');
+    debugLog('🎉 Reactive Peeble App initialization complete!');
 });
-// For debugging purposes, expose the eventBus globally
-window.eventBus = eventBus; 
+
+// For debugging purposes, expose key objects globally
+window.eventBus = eventBus;
+window.stateManager = stateManager;

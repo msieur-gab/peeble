@@ -2,23 +2,28 @@
 
 import { NFCService } from '../services/nfc.js';
 import { debugLog } from '../services/utils.js';
-import { stateManager } from '../services/state-manager.js';
-import { eventBus } from '../services/pubsub.js';
 
 /**
- * Web Component responsible for secure NFC scanning and writing.
- * SECURITY: Captures tag serial as physical key and routes appropriately.
+ * Simplified NFC Handler that just publishes events to the state manager.
  */
 class NFCHandler extends HTMLElement {
     constructor() {
         super();
         this.nfcService = new NFCService();
-        this.writeUrlQueue = null;
-        this.nfcService.onNfcTagScanned = this.handleSecureNfcTagScanned.bind(this);
+        this.eventBus = null;
+        this.stateManager = null;
+        
+        this.nfcService.onNfcTagScanned = this.handleNfcTagScanned.bind(this);
         this.nfcService.onNfcError = this.handleNfcError.bind(this);
+        
         this.render();
-        this.setupEventListeners();
         this.initNfc();
+    }
+
+    initialize(services) {
+        this.eventBus = services.eventBus;
+        this.stateManager = services.stateManager;
+        this.setupEventListeners();
     }
 
     render() {
@@ -31,12 +36,21 @@ class NFCHandler extends HTMLElement {
     }
 
     setupEventListeners() {
-        eventBus.subscribe('start-nfc-write', this.handleStartNfcWrite.bind(this));
-        eventBus.subscribe('stop-nfc-write', this.handleStopNfcWrite.bind(this));
+        if (!this.eventBus) return;
+        
+        // Listen for NFC write requests
+        this.eventBus.subscribe('nfc-write-url', (data) => {
+            this.writeToNfcTag(data.url);
+        });
+        
+        // Listen for state changes to update status
+        this.eventBus.subscribe('state-change', (state) => {
+            this.updateStatusFromState(state);
+        });
     }
 
     connectedCallback() {
-        debugLog('🔒 SECURITY: Secure NFC Handler connected to DOM.');
+        debugLog('🔒 SECURITY: Reactive NFC Handler connected to DOM.');
     }
 
     initNfc() {
@@ -58,10 +72,18 @@ class NFCHandler extends HTMLElement {
         debugLog(statusMessage, 'info');
     }
 
-    /**
-     * SECURITY: Secure NFC tag scanning that properly handles physical key extraction
-     */
-    handleSecureNfcTagScanned(data) {
+    updateStatusFromState(state) {
+        if (state.nfcWriteMode) {
+            this.statusIndicator.textContent = '🔒 Ready to write secure URL. Tap a blank Peeble.';
+        } else if (state.appMode === 'READER' && state.currentStep === 'waiting') {
+            this.statusIndicator.textContent = '🔒 Waiting for physical Peeble scan...';
+        } else {
+            this.statusIndicator.textContent = '🔒 Scanning for secure Peebles.';
+        }
+    }
+
+    handleNfcTagScanned(data) {
+        // Update debug display
         const serialDisplay = document.getElementById('nfc-serial-display');
         const serialNumberSpan = document.getElementById('serialNumber');
         if (serialDisplay && serialNumberSpan) {
@@ -69,92 +91,14 @@ class NFCHandler extends HTMLElement {
             serialDisplay.style.display = 'block';
         }
 
-        debugLog(`🔒 SECURITY: NFC tag scanned. Physical key captured: ${data.serial ? 'YES' : 'NO'}`, data.serial ? 'success' : 'warning');
+        debugLog(`🔒 SECURITY: NFC tag scanned. Serial: ${data.serial ? 'CAPTURED' : 'MISSING'}, URL: ${data.url ? 'PRESENT' : 'BLANK'}`, 'success');
 
-        // Handle write mode first
-        if (this.writeUrlQueue) {
-            debugLog(`🔒 SECURITY: NFC tag scanned in write mode. Writing secure URL: ${this.writeUrlQueue}`);
-            this.writeToNfcTag(this.writeUrlQueue);
-            this.writeUrlQueue = null;
-            return;
-        }
-
-        // Handle URL reading - SECURITY: Check for secure URL format
+        // Just publish the raw scan data - let state manager handle the logic
         if (data.url) {
-            debugLog(`🔒 SECURITY: URL detected on tag: ${data.url}`);
-            
-            if (this.isSecurePeebleUrl(data.url)) {
-                debugLog(`🔒 SECURITY: Secure Peeble URL detected. Extracting parameters...`);
-                this.handleSecurePeebleUrl(data.url, data.serial);
-            } else if (data.url.includes(window.location.origin + window.location.pathname)) {
-                debugLog(`🔒 SECURITY: Legacy Peeble URL detected: ${data.url}`, 'warning');
-                this.statusIndicator.textContent = '⚠️ Legacy Peeble format detected. Please recreate for full security.';
-                // Still navigate but warn user
-                window.location.href = data.url;
-            } else {
-                debugLog(`🔒 SECURITY: Non-Peeble URL ignored: ${data.url}`);
-                this.statusIndicator.textContent = '🔒 Non-Peeble tag scanned. Ignored for security.';
-            }
+            this.eventBus.publish('nfc-tag-scanned', { url: data.url, serial: data.serial });
         } else {
-            // Blank tag - for creation mode
-            debugLog('🔒 SECURITY: Blank NFC tag scanned (no URL record).', 'info');
-            this.statusIndicator.textContent = '🔒 Blank Peeble scanned. Ready for secure message creation.';
-            
-            const serial = data.serial || `PBL-TEMP-${Date.now()}`;
-            debugLog(`🔒 SECURITY: Using physical key for creation: ${serial}`, 'info');
-
-            eventBus.publish('blank-nfc-scanned', serial);
+            this.eventBus.publish('blank-nfc-scanned', data.serial || `PBL-TEMP-${Date.now()}`);
         }
-    }
-
-    /**
-     * SECURITY: Check if URL uses secure format (messageId + ipfsHash, no serial)
-     */
-    isSecurePeebleUrl(url) {
-        try {
-            const urlObj = new URL(url);
-            const params = new URLSearchParams(urlObj.hash.substring(1));
-            
-            const hasMessageId = params.has('messageId');
-            const hasIpfsHash = params.has('ipfsHash');
-            const hasSerial = params.has('serial'); // Legacy format
-            
-            // Secure format: has messageId + ipfsHash, NO serial
-            return hasMessageId && hasIpfsHash && !hasSerial;
-        } catch (error) {
-            return false;
-        }
-    }
-
-    /**
-     * SECURITY: Handle secure Peeble URL with physical key verification
-     */
-    handleSecurePeebleUrl(url, serial) {
-        if (!serial) {
-            debugLog('🔒 SECURITY: No physical key available from NFC scan. Cannot decrypt.', 'error');
-            this.statusIndicator.textContent = '🔒 Error: No physical key detected. Cannot decrypt message.';
-            return;
-        }
-
-        // SECURITY: Store physical key temporarily with timestamp for security
-        const keyData = {
-            serial: serial,
-            timestamp: Date.now(),
-            url: url
-        };
-        sessionStorage.setItem('peeble-physical-key', JSON.stringify(keyData));
-        debugLog(`🔒 SECURITY: Physical key stored temporarily for page reload`);
-        
-        stateManager.setState({ physicalTagSerial: serial, messageUrl: url });
-
-        // Inform the app that we have both URL and physical key
-        eventBus.publish('message-nfc-scanned', { url, serial });
-        
-        // Navigate to the secure URL
-        debugLog(`🔒 SECURITY: Navigating to secure message with physical key...`);
-        this.statusIndicator.textContent = '🔒 Physical key verified. Loading secure message...';
-        
-        window.location.href = url;
     }
 
     handleNfcError(errorMessage) {
@@ -162,35 +106,18 @@ class NFCHandler extends HTMLElement {
         this.statusIndicator.textContent = `🔒 NFC Error: ${errorMessage}`;
     }
 
-    handleStartNfcWrite(url) {
-        const support = this.nfcService.isSupported();
-        if (!support.write && !support.legacyWrite) {
-            debugLog('🔒 SECURITY: Cannot start NFC write - no supported interface.', 'error');
-            this.statusIndicator.textContent = '🔒 NFC Write not supported on this device.';
-            return;
-        }
-
-        this.writeUrlQueue = url;
-        debugLog(`🔒 SECURITY: Prepared to write secure URL (${url.length} chars). Waiting for tag...`);
-        this.statusIndicator.textContent = '🔒 Ready to write secure URL. Tap a blank Peeble.';
-    }
-
-    handleStopNfcWrite() {
-        this.writeUrlQueue = null;
-        debugLog('🔒 SECURITY: NFC write mode deactivated.');
-        this.statusIndicator.textContent = '🔒 Scanning for secure Peebles.';
-    }
-
     async writeToNfcTag(url) {
         try {
+            this.statusIndicator.textContent = '🔒 Writing secure URL...';
             await this.nfcService.writeUrl(url);
             debugLog('🔒 SECURITY: Secure URL written to NFC tag successfully.', 'success');
-            this.statusIndicator.textContent = '🔒 Secure Peeble created! Safe to share.';
-            eventBus.publish('nfc-write-complete');
+            
+            // Publish success event
+            this.eventBus.publish('nfc-write-complete');
+            
         } catch (error) {
             debugLog(`🔒 SECURITY: Failed to write secure URL: ${error.message}`, 'error');
             this.statusIndicator.textContent = `🔒 Write failed: ${error.message}`;
-            this.writeUrlQueue = url; // Keep in queue for retry
         }
     }
 }
