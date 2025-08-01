@@ -37,6 +37,7 @@ class PeebleApp extends HTMLElement {
 
         this.setupStateSubscription();
         this.initializeMode();
+        this.handleInitialLoad();
         this.handleStateChange(this.stateManager.getState());
     }
 
@@ -84,6 +85,24 @@ class PeebleApp extends HTMLElement {
         `;
         this.appContent = this.shadowRoot.getElementById('appContent');
         this.statusDiv = this.shadowRoot.getElementById('status');
+    }
+
+    handleInitialLoad() {
+        if (!this.storageService) {
+            debugLog('🔒 SECURITY: StorageService not yet available, delaying mode initialization.', 'warning');
+            return;
+        }
+
+        const params = URLParser.getParams();
+        
+        if (params.messageId && params.ipfsHash) {
+            debugLog('🔒 SECURITY: Secure URL parameters found. Switching to Reading Mode.', 'info');
+            // We now wait for the event instead of relying on a page reload
+            this.stateManager.setState({ appMode: 'READER', ipfsHash: params.ipfsHash, messageId: params.messageId });
+        } else {
+            debugLog('🔒 SECURITY: No URL parameters found. Switching to Creation Mode.', 'info');
+            this.stateManager.setState({ appMode: 'CREATOR', tagSerial: null });
+        }
     }
     
     setupStateSubscription() {
@@ -228,8 +247,9 @@ class PeebleApp extends HTMLElement {
     renderSecureReaderMode() {
         debugLog('🔒 SECURITY: Rendering Secure Reader Mode.');
         const params = URLParser.getParams();
+        const { tagSerial, messageId, ipfsHash } = this.stateManager.getState();
         
-        if (!this.physicalTagSerial) {
+        if (!tagSerial || !messageId || !ipfsHash) {
             // Show waiting state until physical tag is scanned
             this.appContent.innerHTML = `
                 <div class="security-warning">
@@ -257,12 +277,12 @@ class PeebleApp extends HTMLElement {
         }
 
         // Render player with physical key
-        debugLog(`🔒 SECURITY: Rendering player with restored physical key: ${this.physicalTagSerial}`);
+        debugLog(`🔒 SECURITY: Rendering player with restored physical key: ${tagSerial}`);
         this.appContent.innerHTML = `
             <message-player 
-                serial="${this.physicalTagSerial}" 
-                message-id="${params.messageId}" 
-                ipfs-hash="${params.ipfsHash}">
+                serial="${tagSerial}" 
+                message-id="${messageId}" 
+                ipfs-hash="${ipfsHash}">
             </message-player>
         `;
         this.showStatus('🔒 Physical key detected. Loading secure message...', 'success');

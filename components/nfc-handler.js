@@ -145,6 +145,8 @@ class NFCHandler extends HTMLElement {
         sessionStorage.setItem('peeble-physical-key', JSON.stringify(keyData));
         debugLog(`🔒 SECURITY: Physical key stored temporarily for page reload`);
         
+        stateManager.setState({ physicalTagSerial: serial, messageUrl: url });
+
         // Inform the app that we have both URL and physical key
         eventBus.publish('message-nfc-scanned', { url, serial });
         

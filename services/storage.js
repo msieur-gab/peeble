@@ -130,7 +130,7 @@ export class StorageService {
             // Create a JSON representation of the package
             // FIX: Using a more robust conversion method for binary to Base64
             debugLog(`Converting encrypted audio to base64 (${messagePackage.encryptedAudio.length} bytes)...`);
-            const audioBase64 = btoa(String.fromCharCode(...messagePackage.encryptedAudio));
+            const audioBase64 = this.binToBase64(messagePackage.encryptedAudio);
             debugLog(`Base64 conversion complete (${audioBase64.length} characters)`);
 
             const packageData = {
@@ -303,6 +303,19 @@ export class StorageService {
             debugLog(`❌ Error converting base64 audio: ${error.message}`, 'error');
             throw new Error(`Failed to process downloaded audio: ${error.message}`);
         }
+    }
+    
+    /**
+     * @param {Uint8Array} binary
+     * @returns {string}
+     */
+    binToBase64(binary) {
+        let binaryString = '';
+        const len = binary.byteLength;
+        for (let i = 0; i < len; i++) {
+            binaryString += String.fromCharCode(binary[i]);
+        }
+        return btoa(binaryString);
     }
 
     // Legacy methods kept for backward compatibility (not used in secure flow)
