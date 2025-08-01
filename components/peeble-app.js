@@ -32,6 +32,9 @@ class PeebleApp extends HTMLElement {
         this.storageService = services.storageService;
         debugLog('🔒 SECURITY: Services initialized in secure PeebleApp.');
 
+        // SECURITY: Check for temporarily stored physical key from NFC scan
+        this.restorePhysicalKey();
+
         this.setupStateSubscription();
         this.initializeMode();
         this.handleStateChange(this.stateManager.getState());
@@ -108,8 +111,58 @@ class PeebleApp extends HTMLElement {
 
         this.eventBus.subscribe('close-player', () => {
             this.physicalTagSerial = null; // Clear the physical key
+            this.clearPhysicalKey(); // Also clear from storage
             this.stateManager.setState({ appMode: 'CREATOR', tagSerial: null });
         });
+    }
+
+    /**
+     * SECURITY: Restore physical key from temporary storage after page reload
+     */
+    restorePhysicalKey() {
+        try {
+            const keyDataStr = sessionStorage.getItem('peeble-physical-key');
+            if (!keyDataStr) {
+                debugLog('🔒 SECURITY: No stored physical key found.');
+                return;
+            }
+
+            const keyData = JSON.parse(keyDataStr);
+            const age = Date.now() - keyData.timestamp;
+            const maxAge = 30000; // 30 seconds max age for security
+
+            if (age > maxAge) {
+                debugLog('🔒 SECURITY: Stored physical key expired. Clearing.', 'warning');
+                sessionStorage.removeItem('peeble-physical-key');
+                return;
+            }
+
+            // Verify URL matches current page
+            const currentUrl = window.location.href;
+            if (keyData.url !== currentUrl) {
+                debugLog('🔒 SECURITY: Stored key URL mismatch. Clearing.', 'warning');
+                sessionStorage.removeItem('peeble-physical-key');
+                return;
+            }
+
+            this.physicalTagSerial = keyData.serial;
+            debugLog(`🔒 SECURITY: Physical key restored from temporary storage: ${keyData.serial}`, 'success');
+
+            // Clear the key immediately after use for security
+            sessionStorage.removeItem('peeble-physical-key');
+
+        } catch (error) {
+            debugLog(`🔒 SECURITY: Error restoring physical key: ${error.message}`, 'error');
+            sessionStorage.removeItem('peeble-physical-key');
+        }
+    }
+
+    /**
+     * SECURITY: Clear physical key from temporary storage
+     */
+    clearPhysicalKey() {
+        sessionStorage.removeItem('peeble-physical-key');
+        debugLog('🔒 SECURITY: Physical key cleared from temporary storage.');
     }
 
     handleStateChange(state) {
@@ -204,6 +257,7 @@ class PeebleApp extends HTMLElement {
         }
 
         // Render player with physical key
+        debugLog(`🔒 SECURITY: Rendering player with restored physical key: ${this.physicalTagSerial}`);
         this.appContent.innerHTML = `
             <message-player 
                 serial="${this.physicalTagSerial}" 

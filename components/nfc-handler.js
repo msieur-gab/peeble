@@ -136,18 +136,21 @@ class NFCHandler extends HTMLElement {
             return;
         }
 
+        // SECURITY: Store physical key temporarily with timestamp for security
+        const keyData = {
+            serial: serial,
+            timestamp: Date.now(),
+            url: url
+        };
+        sessionStorage.setItem('peeble-physical-key', JSON.stringify(keyData));
+        debugLog(`🔒 SECURITY: Physical key stored temporarily for page reload`);
+        
         // Inform the app that we have both URL and physical key
         eventBus.publish('message-nfc-scanned', { url, serial });
         
         // Navigate to the secure URL
         debugLog(`🔒 SECURITY: Navigating to secure message with physical key...`);
         this.statusIndicator.textContent = '🔒 Physical key verified. Loading secure message...';
-        
-        // Set the physical key in the app before navigation
-        const peebleApp = document.querySelector('peeble-app');
-        if (peebleApp) {
-            peebleApp.physicalTagSerial = serial;
-        }
         
         window.location.href = url;
     }
