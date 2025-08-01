@@ -128,14 +128,9 @@ export class StorageService {
 
         try {
             // Create a JSON representation of the package
-            // Convert Uint8Array to base64 safely (handle large files)
+            // FIX: Using a more robust conversion method for binary to Base64
             debugLog(`Converting encrypted audio to base64 (${messagePackage.encryptedAudio.length} bytes)...`);
-            let audioBase64 = '';
-            const chunkSize = 8192; // Process in chunks to avoid stack overflow
-            for (let i = 0; i < messagePackage.encryptedAudio.length; i += chunkSize) {
-                const chunk = messagePackage.encryptedAudio.slice(i, i + chunkSize);
-                audioBase64 += btoa(String.fromCharCode.apply(null, chunk));
-            }
+            const audioBase64 = btoa(String.fromCharCode(...messagePackage.encryptedAudio));
             debugLog(`Base64 conversion complete (${audioBase64.length} characters)`);
 
             const packageData = {
@@ -287,6 +282,7 @@ export class StorageService {
         }
         
         try {
+            // FIX: Correctly converting from base64 string to Uint8Array
             const binaryString = atob(audioBase64);
             const encryptedAudio = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
