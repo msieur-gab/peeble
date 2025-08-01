@@ -140,9 +140,11 @@ class StateManager {
     // NFC Event Handlers
     handleNfcTagScanned(data) {
         debugLog(`🔒 SECURITY: NFC tag scanned - URL: ${!!data.url}, Serial: ${!!data.serial}`);
+        debugLog(`🔒 SECURITY: Current nfcWriteMode: ${this._state.nfcWriteMode}, writeUrlQueue: ${!!this._state.writeUrlQueue}`);
         
         if (this._state.nfcWriteMode && this._state.writeUrlQueue) {
             // Handle write mode
+            debugLog(`🔒 SECURITY: In write mode, publishing nfc-write-url event`);
             eventBus.publish('nfc-write-url', { url: this._state.writeUrlQueue, serial: data.serial });
             return;
         }
@@ -188,7 +190,14 @@ class StateManager {
             window.location.href = data.url;
         } else if (!data.url) {
             // Blank tag for creation
-            this.handleBlankNfcScanned(data.serial);
+            debugLog('🔒 SECURITY: Blank tag detected, checking if in write mode...');
+            if (this._state.nfcWriteMode && this._state.writeUrlQueue) {
+                debugLog('🔒 SECURITY: Blank tag + write mode = writing URL');
+                eventBus.publish('nfc-write-url', { url: this._state.writeUrlQueue, serial: data.serial });
+            } else {
+                debugLog('🔒 SECURITY: Blank tag + creation mode');
+                this.handleBlankNfcScanned(data.serial);
+            }
         }
     }
 
@@ -310,6 +319,7 @@ class StateManager {
             });
             
             // Start NFC write mode
+            debugLog(`🔒 STATE: Message saved successfully, starting NFC write mode with URL: ${secureUrl.substring(0, 50)}...`);
             eventBus.publish('start-nfc-write', secureUrl);
             
         } catch (error) {
@@ -415,6 +425,7 @@ class StateManager {
 
     // NFC Write Event Handlers
     handleStartNfcWrite(url) {
+        debugLog(`🔒 STATE: Starting NFC write mode with URL: ${url.substring(0, 50)}...`);
         this.setState({
             nfcWriteMode: true,
             writeUrlQueue: url,
@@ -423,6 +434,7 @@ class StateManager {
     }
 
     handleStopNfcWrite() {
+        debugLog('🔒 STATE: Stopping NFC write mode');
         this.setState({
             nfcWriteMode: false,
             writeUrlQueue: null
@@ -430,6 +442,7 @@ class StateManager {
     }
 
     handleNfcWriteComplete() {
+        debugLog('🔒 STATE: NFC write completed successfully');
         this.setState({
             nfcWriteMode: false,
             writeUrlQueue: null,
