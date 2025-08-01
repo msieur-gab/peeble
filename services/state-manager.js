@@ -97,6 +97,9 @@ class StateManager {
             
             // Try to restore physical key
             this.restorePhysicalKey();
+            
+            // Check if we can auto-load (in case storage service is already available)
+            this.checkAndTriggerAutoLoad();
         }
     }
 
@@ -172,10 +175,8 @@ class StateManager {
                         currentStep: 'loading'
                     });
                     
-                    // Trigger loading if storage service is available
-                    if (this._state.storageService) {
-                        eventBus.publish('load-secure-message');
-                    }
+                    // Use the new auto-load check method
+                    this.checkAndTriggerAutoLoad();
                     return;
                 }
             }
@@ -516,19 +517,25 @@ class StateManager {
                 ...this._state,
                 updatedKeys
             });
+            
+            // Check for auto-load if any critical parameters were updated
+            const criticalKeys = ['tagSerial', 'messageId', 'ipfsHash', 'storageService', 'appMode'];
+            const hasCriticalUpdate = updatedKeys.some(key => criticalKeys.includes(key));
+            
+            if (hasCriticalUpdate) {
+                debugLog('🔒 CRITICAL UPDATE: Checking if auto-load can be triggered...', 'info');
+                // Use setTimeout to ensure state is fully updated before checking
+                setTimeout(() => this.checkAndTriggerAutoLoad(), 0);
+            }
         }
     }
 
     setStorageService(service) {
+        debugLog('🔒 STORAGE: StorageService set in StateManager');
         this.setState({ storageService: service });
         
-        // If we're in reader mode and have all params, start loading
-        if (this._state.appMode === 'READER' && 
-            this._state.tagSerial && 
-            this._state.messageId && 
-            this._state.ipfsHash) {
-            eventBus.publish('load-secure-message');
-        }
+        // Check if we can now auto-load
+        this.checkAndTriggerAutoLoad();
     }
 }
 

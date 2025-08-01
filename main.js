@@ -15,8 +15,8 @@ import './components/nfc-handler.js';
 // === DEVELOPMENT SETUP: PINATA CREDENTIALS ===
 // =======================================================
 // Hardcoded for development/testing - fill these in:
-const DEFAULT_PINATA_API_KEY = '54e63158b8fd4788f2ef'; // <-- Paste your API Key here
-const DEFAULT_PINATA_SECRET = '9586c0caa8bc183e8023f7e3b34c5b1e5a4672ca94f0d4d4bdddf8b4fe50e906'; // <-- Paste your Secret here
+const DEFAULT_PINATA_API_KEY = 'YOUR_PINATA_API_KEY_HERE'; // <-- Paste your API Key here
+const DEFAULT_PINATA_SECRET = 'YOUR_PINATA_SECRET_HERE'; // <-- Paste your Secret here
 
 // Set to true to force use hardcoded keys (ignore localStorage)
 const FORCE_USE_HARDCODED_KEYS = true;
@@ -116,6 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
             pinataApiKey: pinataApiKey, 
             pinataSecret: pinataSecret 
         });
+        
+        debugLog('🔧 MAIN: Setting StorageService in StateManager...', 'info');
         stateManager.setStorageService(storageService);
         debugLog('✅ StorageService automatically configured.', 'success');
         
@@ -124,6 +126,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('apiSetup').style.display = 'none';
             debugLog('🔧 API setup hidden - using development credentials.', 'info');
         }
+    } else {
+        debugLog('⚠️ MAIN: StorageService not configured - missing credentials', 'warning');
     }
 
     // Populate API key inputs (for UI display, even if using hardcoded)
@@ -213,3 +217,35 @@ document.addEventListener('DOMContentLoaded', () => {
 // For debugging purposes, expose key objects globally
 window.eventBus = eventBus;
 window.stateManager = stateManager;
+
+// Debug helper functions
+window.debugState = () => {
+    const state = stateManager.getState();
+    console.log('=== CURRENT STATE ===');
+    console.log('App Mode:', state.appMode);
+    console.log('Current Step:', state.currentStep);
+    console.log('Tag Serial:', state.tagSerial ? '✅ Present' : '❌ Missing');
+    console.log('Message ID:', state.messageId ? '✅ Present' : '❌ Missing');
+    console.log('IPFS Hash:', state.ipfsHash ? '✅ Present' : '❌ Missing');
+    console.log('Storage Service:', state.storageService ? '✅ Present' : '❌ Missing');
+    console.log('NFC Write Mode:', state.nfcWriteMode);
+    console.log('Write URL Queue:', state.writeUrlQueue ? '✅ Present' : '❌ Missing');
+    console.log('Status Message:', state.statusMessage);
+    return state;
+};
+
+window.testAutoLoad = () => {
+    console.log('=== TESTING AUTO-LOAD ===');
+    stateManager.checkAndTriggerAutoLoad();
+};
+
+window.testNfcWrite = (url = 'https://example.com/test') => {
+    console.log('Testing NFC write with URL:', url);
+    eventBus.publish('start-nfc-write', url);
+    console.log('Published start-nfc-write event. Check state with debugState()');
+};
+
+window.forceLoadMessage = () => {
+    console.log('=== FORCE LOADING MESSAGE ===');
+    eventBus.publish('load-secure-message');
+};
