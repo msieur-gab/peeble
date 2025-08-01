@@ -9,9 +9,9 @@ import { eventBus } from '../services/pubsub.js';
 
 /**
  * Web Component for the voice message recording and creation interface.
+ * SECURITY: Implements secure flow where serial never leaves the physical tag.
  */
 class VoiceRecorder extends HTMLElement {
-    // This is a key change: Tell the component to observe the 'serial' attribute.
     static get observedAttributes() {
         return ['serial'];
     }
@@ -24,7 +24,7 @@ class VoiceRecorder extends HTMLElement {
         this.encryptionService = new EncryptionService();
         this.storageService = null;
         this.statusDiv = null;
-        this.tagSerial = null;
+        this.tagSerial = null; // SECURITY: Only stored in memory, never persisted
 
         this.audioBlob = null;
         this.recordingDuration = 0;
@@ -39,7 +39,6 @@ class VoiceRecorder extends HTMLElement {
         this.audioService.onRecordingStop = this.handleRecordingStop;
         this.audioService.onTranscriptUpdate = this.handleTranscriptUpdate;
         this.audioService.onError = this.handleAudioServiceError;
-        
 
         this.render();
         this.setupEventListeners();
@@ -49,7 +48,7 @@ class VoiceRecorder extends HTMLElement {
         if (name === 'serial' && oldValue !== newValue) {
             this.tagSerial = newValue;
             this.handleSerialSet(newValue);
-            debugLog(`Attribute 'serial' changed from ${oldValue} to ${newValue}`);
+            debugLog(`SECURITY: Tag serial received (stored in memory only): ${newValue ? 'SET' : 'CLEARED'}`);
         }
     }
     
@@ -59,18 +58,14 @@ class VoiceRecorder extends HTMLElement {
     
     handleSerialSet(serial) {
         this.tagSerial = serial;
-        debugLog(`VoiceRecorder received serial directly: ${this.tagSerial}`);
         if (!this.tagSerial) {
             this.showStatus('Please scan a blank NFC tag to begin creating a message.', 'info');
         } else {
-            this.showStatus('Tag scanned. You can now record your message.', 'success');
+            this.showStatus('🔒 Tag scanned securely. You can now record your message.', 'success');
+            debugLog('SECURITY: Physical tag detected - ready for secure recording.', 'success');
         }
     }
     
-    /**
-     * Sets the StorageService instance. Called from the parent component (peeble-app).
-     * @param {StorageService} service
-     */
     setStorageService(service) {
         this.storageService = service;
     }
@@ -82,6 +77,23 @@ class VoiceRecorder extends HTMLElement {
                 .step { display: none; }
                 .step.active { display: block; }
                 .text-center { text-align: center; }
+                .security-notice {
+                    background: #e8f5e8;
+                    border: 2px solid #4caf50;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin: 15px 0;
+                    text-align: center;
+                }
+                .security-notice h4 {
+                    color: #2e7d2e;
+                    margin-bottom: 8px;
+                }
+                .security-notice p {
+                    color: #4caf50;
+                    font-size: 0.9em;
+                    margin: 0;
+                }
                 .record-button {
                     width: 120px;
                     height: 120px;
@@ -127,7 +139,11 @@ class VoiceRecorder extends HTMLElement {
             <div class="voice-recorder-container">
                 <div class="step active" id="recording">
                     <div class="text-center">
-                        <h2>Record Your Voice Message</h2>
+                        <h2>🔒 Secure Voice Recording</h2>
+                        <div class="security-notice">
+                            <h4>🛡️ Physical Security Active</h4>
+                            <p>Your tag serial is the encryption key and never leaves this device</p>
+                        </div>
                         <p style="color: var(--secondary-color); margin-bottom: 20px;">Speak clearly and from the heart. Maximum 90 seconds.</p>
                         
                         <button class="record-button" id="recordBtn">
@@ -136,7 +152,7 @@ class VoiceRecorder extends HTMLElement {
                         </button>
                         
                         <div class="recording-time" id="recordingTime" style="display: none;">00:00</div>
-                        <div class="status" id="status">Ready to record your message</div>
+                        <div class="status" id="status">Ready to record your secure message</div>
                     </div>
                 </div>
 
@@ -154,18 +170,25 @@ class VoiceRecorder extends HTMLElement {
                         </div>
                     </div>
                     
-                    <button class="btn" id="saveBtn">Save to IPFS & Write NFC</button>
+                    <button class="btn" id="saveBtn">🔒 Encrypt & Save Securely</button>
                     <button class="btn btn-secondary" id="retryBtn">Record Again</button>
                 </div>
 
                 <div class="step" id="success">
                     <div class="success" style="text-align: center; padding: 20px;">
-                        <h2>✅ Message Saved & Tag Ready!</h2>
-                        <p>Your encrypted voice message is now stored on the global IPFS network.</p>
-                        <p><strong>Now, tap your blank Peeble stone to the back of your phone to write the URL.</strong></p>
+                        <h2>✅ Message Encrypted & Saved!</h2>
+                        <div class="security-notice">
+                            <h4>🔐 Security Status</h4>
+                            <p>Your message is encrypted. Only the physical Peeble can decrypt it.</p>
+                        </div>
+                        <p><strong>Now, tap your blank Peeble stone to write the secure URL.</strong></p>
                         <div style="margin: 20px 0; padding: 15px; background: white; border-radius: 10px;">
-                            <p><strong>Generated URL:</strong> <span id="nfcUrlDisplay" style="font-family: monospace; word-break: break-all;"></span></p>
+                            <p><strong>Secure URL (no encryption key):</strong></p>
+                            <p style="font-family: monospace; word-break: break-all; font-size: 0.8em; background: #f5f5f5; padding: 10px; border-radius: 5px;" id="nfcUrlDisplay"></p>
                             <p><strong>Message ID:</strong> <span id="messageIdDisplay"></span></p>
+                            <p style="color: #666; font-size: 0.85em; margin-top: 10px;">
+                                ⚠️ This URL is safe to share - it cannot decrypt your message without the physical Peeble
+                            </p>
                         </div>
                         <button class="btn" id="createAnotherBtn">Create Another Message</button>
                     </div>
@@ -193,15 +216,13 @@ class VoiceRecorder extends HTMLElement {
         }
     }
 
-
     setupEventListeners() {
         this.shadowRoot.getElementById('recordBtn').addEventListener('click', () => this.toggleRecording());
-        this.shadowRoot.getElementById('saveBtn').addEventListener('click', () => this.saveToIPFSAndWriteNFC());
+        this.shadowRoot.getElementById('saveBtn').addEventListener('click', () => this.saveSecureMessage());
         this.shadowRoot.getElementById('retryBtn').addEventListener('click', () => this.retryRecording());
         this.shadowRoot.getElementById('createAnotherBtn').addEventListener('click', () => this.resetCreator());
         this.shadowRoot.getElementById('transcriptText').addEventListener('input', () => this.updateCharCount());
     }
-
 
     showStep(stepId) {
         this.shadowRoot.querySelectorAll('.step').forEach(step => {
@@ -214,7 +235,7 @@ class VoiceRecorder extends HTMLElement {
     async toggleRecording() {
         const { tagSerial } = stateManager.getState();
         if (!tagSerial) {
-            this.showStatus('Please scan a blank NFC tag first.', 'warning');
+            this.showStatus('🔒 Please scan a blank NFC tag first for secure encryption.', 'warning');
             return;
         }
 
@@ -242,7 +263,7 @@ class VoiceRecorder extends HTMLElement {
             recordBtn.classList.add('recording');
             recordIcon.textContent = '⏹️';
             recordText.textContent = 'Stop Recording';
-            statusDiv.textContent = 'Recording... Speak clearly into your microphone';
+            statusDiv.textContent = '🔒 Recording securely... Speak clearly';
             recordingTime.style.display = 'block';
         } else if (isProcessing) {
             recordBtn.classList.add('processing');
@@ -253,7 +274,7 @@ class VoiceRecorder extends HTMLElement {
         } else {
             recordIcon.textContent = '🎤';
             recordText.textContent = 'Press to Record';
-            statusDiv.textContent = 'Ready to record your message';
+            statusDiv.textContent = 'Ready to record your secure message';
             recordingTime.style.display = 'none';
         }
     }
@@ -301,16 +322,18 @@ class VoiceRecorder extends HTMLElement {
         }
     }
 
-    async saveToIPFSAndWriteNFC() {
-        debugLog('Save to IPFS button clicked. Starting save process...');
+    /**
+     * SECURITY: New secure save method that creates a complete encrypted package
+     * and generates a URL with no encryption key exposure.
+     */
+    async saveSecureMessage() {
+        debugLog('🔒 SECURITY: Starting secure save process...');
         const transcript = this.shadowRoot.getElementById('transcriptText').value.trim();
         const { tagSerial, pinataApiKey, pinataSecret } = stateManager.getState();
         
-        debugLog(`Transcript value before validation: '${transcript}'`);
-        debugLog(`Tag serial: '${tagSerial}'`);
-
+        // Validation
         if (!tagSerial) {
-            this.showStatus('Error: No NFC tag serial number available. Please scan a blank tag to start.', 'error');
+            this.showStatus('🔒 Error: No physical tag serial. Please scan a blank tag.', 'error');
             return;
         }
         if (!transcript) {
@@ -330,68 +353,85 @@ class VoiceRecorder extends HTMLElement {
             return;
         }
 
-        debugLog('All validation checks passed. Entering try block.');
-
         const saveBtn = this.shadowRoot.getElementById('saveBtn');
         const originalText = saveBtn.textContent;
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving...';
-
-        debugLog('All validation checks passed. Entering try block to save.');
 
         try {
-            debugLog('Entering try block. Generating message ID and timestamp.');
+            // Generate message metadata
             const messageId = generateMessageId();
             const timestamp = Date.now();
             
-            debugLog(`Generated message data: ID=${messageId}, Serial: ${tagSerial}, Timestamp=${timestamp}`);
+            debugLog(`🔒 SECURITY: Creating secure package - ID: ${messageId}`, 'info');
             
-            saveBtn.textContent = 'Deriving encryption key...';
+            // Step 1: Derive encryption key from tag serial (NEVER stored)
+            saveBtn.textContent = '🔑 Deriving encryption key...';
             const encryptionKey = await this.encryptionService.deriveEncryptionKey(tagSerial, timestamp);
-            debugLog('Encryption key derived successfully.', 'success');
+            debugLog('🔒 SECURITY: Encryption key derived from physical tag (not stored)', 'success');
             
-            saveBtn.textContent = 'Encrypting audio...';
+            // Step 2: Encrypt audio
+            saveBtn.textContent = '🔒 Encrypting audio...';
             const audioBuffer = await this.audioBlob.arrayBuffer();
-            const encryptedAudioBinary = await this.encryptionService.encryptDataToBinary(audioBuffer, encryptionKey);
-            debugLog(`Audio encrypted to binary: ${encryptedAudioBinary.length} bytes`, 'success');
+            const encryptedAudio = await this.encryptionService.encryptDataToBinary(audioBuffer, encryptionKey);
+            debugLog(`🔒 SECURITY: Audio encrypted (${encryptedAudio.length} bytes)`, 'success');
             
-            saveBtn.textContent = 'Encrypting transcript...';
+            // Step 3: Encrypt transcript
+            saveBtn.textContent = '🔒 Encrypting transcript...';
             const encryptedTranscript = await this.encryptionService.encryptDataToBase64(transcript, encryptionKey);
-            debugLog(`Transcript encrypted to Base64: ${encryptedTranscript.length} characters`, 'success');
+            debugLog(`🔒 SECURITY: Transcript encrypted (${encryptedTranscript.length} chars)`, 'success');
             
-            saveBtn.textContent = 'Uploading to IPFS...';
-            const ipfsHash = await this.storageService.uploadToPinata(encryptedAudioBinary, `${messageId}-audio.encrypted`);
-            debugLog(`IPFS upload complete: ${ipfsHash}`, 'success');
-            
-            debugLog('Saving message metadata to localStorage...');
-            const messageData = {
+            // Step 4: Create secure package (NO serial included)
+            const messagePackage = {
                 messageId,
-                serial: tagSerial,
-                timestamp,
-                ipfsHash,
+                timestamp, // Used with serial for key derivation
+                encryptedAudio,
                 encryptedTranscript,
-                originalTranscript: transcript,
+                metadata: {
+                    duration: this.recordingDuration,
+                    created: new Date().toISOString(),
+                    version: 'secure-v1'
+                }
+                // SECURITY: tagSerial is NEVER included in the package
+            };
+            
+            // Step 5: Upload complete package to IPFS
+            saveBtn.textContent = '📤 Uploading secure package...';
+            const ipfsHash = await this.storageService.uploadMessagePackage(messagePackage);
+            debugLog(`🔒 SECURITY: Secure package uploaded to IPFS: ${ipfsHash}`, 'success');
+            
+            // Step 6: Save local reference (for UI list only)
+            debugLog('💾 Saving local message reference...');
+            const localMessageData = {
+                messageId,
+                ipfsHash,
+                timestamp,
+                originalTranscript: transcript, // For UI display only
                 duration: this.recordingDuration,
                 created: new Date().toISOString()
+                // SECURITY: tagSerial is NEVER stored locally
             };
 
             const savedMessages = JSON.parse(localStorage.getItem('peebleMessages') || '[]');
-            savedMessages.push(messageData);
+            savedMessages.push(localMessageData);
             localStorage.setItem('peebleMessages', JSON.stringify(savedMessages));
-            debugLog('Message metadata saved to localStorage.', 'success');
+            debugLog('💾 Local reference saved (no encryption key stored)', 'success');
 
-            const nfcUrl = URLParser.createNfcUrl({ serial: tagSerial, messageId: messageId, timestamp: timestamp });
+            // Step 7: Generate SECURE URL (no serial)
+            const secureUrl = URLParser.createSecureNfcUrl({ messageId, ipfsHash });
+            debugLog('🔒 SECURITY: Secure URL generated (no encryption key exposed)', 'success');
 
-            this.shadowRoot.getElementById('nfcUrlDisplay').textContent = nfcUrl;
+            // Display results
+            this.shadowRoot.getElementById('nfcUrlDisplay').textContent = secureUrl;
             this.shadowRoot.getElementById('messageIdDisplay').textContent = messageId;
             this.showStep('success');
-            this.showStatus('Message saved! Now tap your Peeble to write the URL.', 'success', 0);
+            this.showStatus('🔒 Message encrypted and secured! Tap Peeble to write URL.', 'success', 0);
 
-            eventBus.publish('start-nfc-write', nfcUrl);
+            // Initiate NFC write
+            eventBus.publish('start-nfc-write', secureUrl);
             
         } catch (error) {
-            debugLog(`Save and NFC write preparation failed: ${error.message}`, 'error');
-            this.showStatus(`Failed to save message: ${error.message}`, 'error');
+            debugLog(`🔒 SECURITY: Secure save failed: ${error.message}`, 'error');
+            this.showStatus(`Failed to save message securely: ${error.message}`, 'error');
         } finally {
             saveBtn.textContent = originalText;
             saveBtn.disabled = false;
@@ -411,12 +451,12 @@ class VoiceRecorder extends HTMLElement {
         
         this.updateRecordingUI(false, false);
         this.showStep('recording');
-        this.showStatus('Ready to record your message.');
+        this.showStatus('Ready to record your secure message.');
     }
 
     resetCreator() {
         this.retryRecording();
-        this.showStatus('Ready to create a new message.');
+        this.showStatus('Ready to create a new secure message.');
         eventBus.publish('stop-nfc-write');
     }
 }

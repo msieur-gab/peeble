@@ -8,8 +8,7 @@ import './message-player.js';
 
 /**
  * The main application Web Component.
- * It determines the app mode (creation or reading) based on URL parameters
- * and renders the appropriate sub-component (voice-recorder or message-player).
+ * SECURITY: Handles secure URL parsing and ensures serial comes from physical NFC scan only.
  */
 class PeebleApp extends HTMLElement {
     constructor() {
@@ -21,40 +20,27 @@ class PeebleApp extends HTMLElement {
         this.storageService = null;
         this.unsubscribe = null;
 
-        // Render initial structure, it will show "Loading..."
+        // SECURITY: Store the physical tag serial separately from URL parameters
+        this.physicalTagSerial = null;
+
         this.render();
     }
 
-    /**
-     * Initializes the app with the singleton services.
-     * @param {{stateManager: import('../services/state-manager.js').StateManager, eventBus: import('../services/pubsub.js').EventBus, storageService: StorageService}} services
-     */
     initialize(services) {
         this.stateManager = services.stateManager;
         this.eventBus = services.eventBus;
         this.storageService = services.storageService;
-        debugLog('Services set in PeebleApp.'); //
+        debugLog('🔒 SECURITY: Services initialized in secure PeebleApp.');
 
         this.setupStateSubscription();
         this.initializeMode();
-        
-        // === THE FIX IS HERE ===
-        // Manually trigger the first render based on the initial state
         this.handleStateChange(this.stateManager.getState());
-        // =======================
     }
 
-    /**
-     * Renders the initial structure. Content will be dynamically added.
-     * @private
-     */
     render() {
         this.shadowRoot.innerHTML = `
             <style>
-                /* Import global styles */
                 @import '../style.css';
-
-                /* Basic styling for the app container */
                 .app-content {
                     min-height: 300px;
                     display: flex;
@@ -67,10 +53,27 @@ class PeebleApp extends HTMLElement {
                     padding: 0 20px;
                     margin-bottom: 20px;
                 }
+                .security-warning {
+                    background: #fff3cd;
+                    border: 2px solid #ffc107;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin: 15px 0;
+                    text-align: center;
+                }
+                .security-warning h4 {
+                    color: #856404;
+                    margin-bottom: 8px;
+                }
+                .security-warning p {
+                    color: #664d03;
+                    font-size: 0.9em;
+                    margin: 0;
+                }
             </style>
             <div class="app-content-wrapper">
                 <div class="status-container">
-                    <div id="status" class="status">Loading Peeble app...</div>
+                    <div id="status" class="status">🔒 Loading secure Peeble app...</div>
                 </div>
                 <div class="app-content" id="appContent">
                 </div>
@@ -80,55 +83,48 @@ class PeebleApp extends HTMLElement {
         this.statusDiv = this.shadowRoot.getElementById('status');
     }
     
-    /**
-     * Sets up the subscription to state changes.
-     * @private
-     */
     setupStateSubscription() {
-        // Unsubscribe from previous subscription if it exists
         if (this.unsubscribe) {
             this.unsubscribe();
         }
 
-        // Subscribe to state changes
         this.unsubscribe = this.eventBus.subscribe('state-change', (state) => {
             this.handleStateChange(state);
         });
 
-        // Also listen for specific events to trigger state changes
+        // SECURITY: Listen for NFC scans to capture physical tag serial
         this.eventBus.subscribe('blank-nfc-scanned', (serial) => {
+            debugLog(`🔒 SECURITY: Blank NFC tag scanned - serial captured: ${serial}`, 'success');
+            this.physicalTagSerial = serial;
             this.stateManager.setState({ appMode: 'CREATOR', tagSerial: serial });
         });
+
+        // SECURITY: Listen for message playback NFC scans
+        this.eventBus.subscribe('message-nfc-scanned', (data) => {
+            debugLog(`🔒 SECURITY: Message NFC tag scanned - serial captured: ${data.serial}`, 'success');
+            this.physicalTagSerial = data.serial;
+            // The URL parsing will handle the rest
+        });
+
         this.eventBus.subscribe('close-player', () => {
+            this.physicalTagSerial = null; // Clear the physical key
             this.stateManager.setState({ appMode: 'CREATOR', tagSerial: null });
         });
     }
 
-    /**
-     * Handles state changes and updates the UI accordingly.
-     * @param {object} state - The full updated state object.
-     * @private
-     */
     handleStateChange(state) {
-        debugLog('PeebleApp received state change.', 'info');
+        debugLog('🔒 SECURITY: PeebleApp received state change.', 'info');
         const { appMode, tagSerial, pinataApiKey, pinataSecret } = state;
 
         if (appMode === 'READER') {
-            this.renderReaderMode();
+            this.renderSecureReaderMode();
         } else {
             this.renderCreatorMode(tagSerial);
         }
 
-        // Propagate services down to child components
         this.passServicesToChild(pinataApiKey, pinataSecret);
     }
     
-    /**
-     * Displays a status message to the user.
-     * @param {string} message - The message to display.
-     * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
-     * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
-     */
     showStatus(message, type = 'info', duration = 5000) {
         if (this.statusDiv) {
             this.statusDiv.textContent = message;
@@ -138,71 +134,86 @@ class PeebleApp extends HTMLElement {
                 setTimeout(() => {
                     if (this.statusDiv.textContent === message) {
                         this.statusDiv.className = 'status';
-                        this.statusDiv.textContent = 'Ready for action';
+                        this.statusDiv.textContent = 'Ready for secure action';
                     }
                 }, duration);
             }
-        } else {
-            debugLog(`Status display element not found inside PeebleApp.`, 'warning');
         }
     }
 
-
     /**
-     * Determines the initial app mode based on URL parameters and sets the state.
-     * @public
+     * SECURITY: Determines app mode using secure URL parsing
      */
     initializeMode() {
         if (!this.storageService) {
-            debugLog('StorageService not yet available, delaying mode initialization.', 'warning');
+            debugLog('🔒 SECURITY: StorageService not yet available, delaying mode initialization.', 'warning');
             return;
         }
 
         const params = URLParser.getParams();
         
-        if (params.serial && params.messageId && params.timestamp) {
-            debugLog('URL parameters found. Switching to Reading Mode.');
-            this.stateManager.setState({ appMode: 'READER', tagSerial: params.serial });
+        // SECURITY: Check for secure URL format (messageId + ipfsHash, NO serial)
+        if (params.messageId && params.ipfsHash) {
+            debugLog('🔒 SECURITY: Secure URL parameters found. Switching to Reading Mode.', 'info');
+            debugLog('🔒 SECURITY: Waiting for physical NFC scan to provide decryption key...', 'info');
+            this.stateManager.setState({ appMode: 'READER' });
         } else {
-            debugLog('No URL parameters found. Switching to Creation Mode.');
+            debugLog('🔒 SECURITY: No URL parameters found. Switching to Creation Mode.', 'info');
             this.stateManager.setState({ appMode: 'CREATOR', tagSerial: null });
         }
     }
 
-    /**
-     * Renders the Voice Recorder component.
-     * @param {string|null} serial - The NFC tag's serial number.
-     * @private
-     */
     renderCreatorMode(serial) {
-        debugLog(`Rendering Creator Mode. Serial: ${serial}`);
+        debugLog(`🔒 SECURITY: Rendering Creator Mode. Serial: ${serial ? 'AVAILABLE' : 'NONE'}`);
         this.appContent.innerHTML = `<voice-recorder serial="${serial || ''}"></voice-recorder>`;
-        this.showStatus('Ready to create a new Peeble message.', 'info');
+        this.showStatus('🔒 Ready to create a secure Peeble message.', 'info');
     }
 
     /**
-     * Renders the Message Player component.
-     * @private
+     * SECURITY: Renders secure reader mode that requires physical NFC scan
      */
-    renderReaderMode() {
-        debugLog('Rendering Reader Mode.');
+    renderSecureReaderMode() {
+        debugLog('🔒 SECURITY: Rendering Secure Reader Mode.');
         const params = URLParser.getParams();
+        
+        if (!this.physicalTagSerial) {
+            // Show waiting state until physical tag is scanned
+            this.appContent.innerHTML = `
+                <div class="security-warning">
+                    <h4>🔒 Physical Key Required</h4>
+                    <p>Please scan the Peeble stone to decrypt this message</p>
+                </div>
+                <div style="text-align: center; padding: 40px;">
+                    <h3>🔄 Waiting for Physical Peeble</h3>
+                    <p style="color: #666; margin: 20px 0;">
+                        This message is encrypted and requires the original Peeble stone to decrypt.
+                    </p>
+                    <p style="color: #666;">
+                        <strong>Tap the Peeble to your phone to continue...</strong>
+                    </p>
+                    <div style="margin-top: 30px; padding: 15px; background: #f5f5f5; border-radius: 10px;">
+                        <p style="font-size: 0.9em; color: #333;">
+                            <strong>Message ID:</strong> ${params.messageId}<br>
+                            <strong>IPFS Hash:</strong> ${params.ipfsHash.substring(0, 20)}...
+                        </p>
+                    </div>
+                </div>
+            `;
+            this.showStatus('🔒 Waiting for physical Peeble scan to decrypt message...', 'warning', 0);
+            return;
+        }
+
+        // Render player with physical key
         this.appContent.innerHTML = `
             <message-player 
-                serial="${params.serial}" 
+                serial="${this.physicalTagSerial}" 
                 message-id="${params.messageId}" 
-                timestamp="${params.timestamp}">
+                ipfs-hash="${params.ipfsHash}">
             </message-player>
         `;
-        this.showStatus('Loading your Peeble message...', 'info');
+        this.showStatus('🔒 Physical key detected. Loading secure message...', 'success');
     }
     
-    /**
-     * Passes services to the currently active child component.
-     * @param {string} apiKey - Pinata API Key
-     * @param {string} secret - Pinata Secret
-     * @private
-     */
     passServicesToChild(apiKey, secret) {
         this.storageService.setCredentials(apiKey, secret);
         

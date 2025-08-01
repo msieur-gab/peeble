@@ -6,11 +6,12 @@ import { debugLog } from '../services/utils.js';
 
 /**
  * Web Component for playing back encrypted voice messages.
- * It expects 'serial', 'message-id', and 'timestamp' attributes.
+ * SECURITY: Requires physical NFC tag scan to get the encryption key (serial).
+ * Expects 'serial', 'message-id', and 'ipfs-hash' attributes.
  */
 class MessagePlayer extends HTMLElement {
     static get observedAttributes() {
-        return ['serial', 'message-id', 'timestamp'];
+        return ['serial', 'message-id', 'ipfs-hash'];
     }
 
     constructor() {
@@ -18,36 +19,46 @@ class MessagePlayer extends HTMLElement {
         this.attachShadow({ mode: 'open' });
 
         this.encryptionService = new EncryptionService();
-        this.storageService = null; // Will be set by parent component
-        this.currentAudio = null; // Reference to the audio element
+        this.storageService = null;
+        this.currentAudio = null;
         this.statusDiv = null;
+
+        // SECURITY: Store decryption parameters
+        this.tagSerial = null; // Physical key from NFC scan
+        this.messageId = null;
+        this.ipfsHash = null;
 
         this.render();
         this.setupEventListeners();
     }
 
-    /**
-     * Sets the StorageService instance. Called from the parent component (peeble-app).
-     * @param {StorageService} service
-     */
     setStorageService(service) {
         this.storageService = service;
-        debugLog('StorageService set in MessagePlayer.');
-        // Now that the service is available, we can safely load the message.
-        this.loadMessage();
+        debugLog('🔒 SECURITY: StorageService set in MessagePlayer.');
+        this.loadSecureMessage();
     }
 
-    /**
-     * Renders the initial HTML structure of the message player.
-     * @private
-     */
     render() {
         this.shadowRoot.innerHTML = `
             <style>
-                /* Import global styles (or copy relevant ones) */
                 @import '../style.css';
-
-                /* Component-specific styles */
+                .security-notice {
+                    background: #e8f5e8;
+                    border: 2px solid #4caf50;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin: 15px 0;
+                    text-align: center;
+                }
+                .security-notice h4 {
+                    color: #2e7d2e;
+                    margin-bottom: 8px;
+                }
+                .security-notice p {
+                    color: #4caf50;
+                    font-size: 0.9em;
+                    margin: 0;
+                }
                 .playback-controls {
                     display: flex;
                     align-items: center;
@@ -88,31 +99,54 @@ class MessagePlayer extends HTMLElement {
                 }
                 audio { width: 100%; margin: 10px 0; }
                 .status { margin-bottom: 10px; }
+                .error-state {
+                    text-align: center;
+                    padding: 20px;
+                    background: #fee;
+                    border-radius: 10px;
+                    margin: 20px 0;
+                }
+                .error-state h3 {
+                    color: #c53030;
+                    margin-bottom: 10px;
+                }
+                .error-state p {
+                    color: #666;
+                    margin-bottom: 15px;
+                }
             </style>
             <div class="message-player-container">
                 <div class="status" id="status"></div>
-                <h2>🎧 Playing Your Peeble Message</h2>
+                <h2>🔒 Secure Peeble Playback</h2>
+                
+                <div class="security-notice">
+                    <h4>🛡️ Physical Security Verification</h4>
+                    <p>Decryption requires the physical Peeble that was scanned</p>
+                </div>
+                
                 <div class="playback-controls">
                     <button class="play-button" id="playButton">▶️</button>
                     <div class="message-info">
-                        <h4 id="playingTitle">Loading message...</h4>
-                        <p id="playingInfo">Decrypting and preparing audio...</p>
+                        <h4 id="playingTitle">🔄 Loading secure message...</h4>
+                        <p id="playingInfo">Verifying physical key and downloading...</p>
                     </div>
                 </div>
-                <div id="playingTranscript"></div>
-                <audio id="playbackAudio" controls></audio>
+                
+                <div id="playingTranscript">Decrypting transcript...</div>
+                <audio id="playbackAudio" controls style="display: none;"></audio>
+                
+                <div id="errorState" class="error-state" style="display: none;">
+                    <h3>🔒 Decryption Failed</h3>
+                    <p>This message requires the original physical Peeble to decrypt.</p>
+                    <p>Please scan the correct Peeble stone that was used to create this message.</p>
+                </div>
+                
                 <button class="btn btn-secondary" id="closePlayerBtn">Close Player</button>
             </div>
         `;
         this.statusDiv = this.shadowRoot.getElementById('status');
     }
 
-    /**
-     * Displays a status message to the user.
-     * @param {string} message - The message to display.
-     * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
-     * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
-     */
     showStatus(message, type = 'info', duration = 5000) {
         if (this.statusDiv) {
             this.statusDiv.textContent = message;
@@ -126,15 +160,9 @@ class MessagePlayer extends HTMLElement {
                     }
                 }, duration);
             }
-        } else {
-            debugLog(`Status display element not found in message-player.`, 'warning');
         }
     }
 
-    /**
-     * Sets up event listeners for playback controls.
-     * @private
-     */
     setupEventListeners() {
         this.shadowRoot.getElementById('playButton').addEventListener('click', () => this.togglePlayback());
         this.shadowRoot.getElementById('closePlayerBtn').addEventListener('click', () => this.closePlayback());
@@ -144,127 +172,126 @@ class MessagePlayer extends HTMLElement {
         });
     }
 
-    /**
-     * Lifecycle callback when the element is added to the DOM.
-     * @private
-     */
     connectedCallback() {
-        debugLog('MessagePlayer connected to DOM.');
-        // Removed the call to this.loadMessage() from here.
-        // It is now called by the parent component via setStorageService().
+        debugLog('🔒 SECURITY: MessagePlayer connected to DOM.');
     }
 
-    /**
-     * Lifecycle callback when an observed attribute changes.
-     * @param {string} name - The name of the attribute.
-     * @param {string} oldValue - The old value of the attribute.
-     * @param {string} newValue - The new value of the attribute.
-     * @private
-     */
     attributeChangedCallback(name, oldValue, newValue) {
         if (oldValue !== newValue) {
-            debugLog(`Attribute changed: ${name} from ${oldValue} to ${newValue}`);
-            // Reload message if critical parameters change, and the service is already set.
-            if (this.storageService && (name === 'serial' || name === 'message-id' || name === 'timestamp')) {
-                this.loadMessage();
+            debugLog(`🔒 SECURITY: Attribute changed: ${name} = ${newValue ? 'SET' : 'NULL'}`);
+            
+            if (name === 'serial') {
+                this.tagSerial = newValue;
+                debugLog(`🔒 SECURITY: Physical key received from NFC scan: ${newValue ? 'AVAILABLE' : 'MISSING'}`);
+            } else if (name === 'message-id') {
+                this.messageId = newValue;
+            } else if (name === 'ipfs-hash') {
+                this.ipfsHash = newValue;
+            }
+
+            // Reload message if we have the storage service and key parameters
+            if (this.storageService && this.tagSerial && this.messageId && this.ipfsHash) {
+                this.loadSecureMessage();
             }
         }
     }
 
     /**
-     * Loads, decrypts, and prepares the message for playback.
-     * @private
+     * SECURITY: New secure message loading that requires physical tag serial
      */
-    async loadMessage() {
-        const serial = this.getAttribute('serial');
-        const messageId = this.getAttribute('message-id');
-        const timestamp = parseInt(this.getAttribute('timestamp'), 10);
-
-        if (!serial || !messageId || isNaN(timestamp)) {
-            this.showStatus('Missing or invalid message parameters.', 'error');
-            debugLog('Missing or invalid message parameters for playback.', 'error');
+    async loadSecureMessage() {
+        if (!this.tagSerial || !this.messageId || !this.ipfsHash) {
+            this.showStatus('Missing security parameters for decryption.', 'error');
+            debugLog('🔒 SECURITY: Missing required parameters for secure playback.', 'error');
+            this.showErrorState();
             return;
         }
 
         if (!this.storageService || (!this.storageService.apiKey || !this.storageService.secret)) {
-            this.showStatus('Pinata API credentials are not set. Cannot play message.', 'error');
-            debugLog('StorageService not initialized or missing credentials.', 'error');
+            this.showStatus('Pinata API credentials not configured.', 'error');
+            debugLog('🔒 SECURITY: StorageService not properly configured.', 'error');
             return;
         }
 
-        this.shadowRoot.getElementById('playingTitle').textContent = `Peeble ${messageId}`;
-        this.shadowRoot.getElementById('playingInfo').textContent = 'Downloading from IPFS...';
-        this.showStatus('Downloading message...', 'info', 0); // Keep status visible
+        this.shadowRoot.getElementById('playingTitle').textContent = `Peeble ${this.messageId}`;
+        this.shadowRoot.getElementById('playingInfo').textContent = '📦 Downloading encrypted package...';
+        this.showStatus('🔒 Downloading secure message...', 'info', 0);
 
         try {
-            debugLog(`Starting playback for message: ${messageId}, Serial: ${serial}, Timestamp: ${timestamp}`);
+            debugLog(`🔒 SECURITY: Starting secure playback - Message: ${this.messageId}, IPFS: ${this.ipfsHash}`, 'info');
             
-            // 1. Find the message data in localStorage to get the correct IPFS hash
-            const savedMessages = JSON.parse(localStorage.getItem('peebleMessages') || '[]');
-            const messageData = savedMessages.find(msg => msg.messageId === messageId);
-
-            if (!messageData || !messageData.ipfsHash) {
-                throw new Error('Message data not found in local storage. Cannot download.');
+            // Step 1: Download complete encrypted package from IPFS
+            this.shadowRoot.getElementById('playingInfo').textContent = '📦 Downloading from IPFS...';
+            const messagePackage = await this.storageService.downloadMessagePackage(this.ipfsHash);
+            debugLog(`🔒 SECURITY: Package downloaded - contains encrypted audio and transcript`, 'success');
+            
+            // Step 2: Verify message ID matches
+            if (messagePackage.messageId !== this.messageId) {
+                throw new Error('Message ID mismatch - package corruption detected');
             }
-
-            // 2. Download encrypted audio from IPFS using the correct hash
-            const ipfsHash = messageData.ipfsHash;
-            const encryptedBinaryData = await this.storageService.downloadFromPinata(ipfsHash);
-            debugLog(`Downloaded encrypted binary data: ${encryptedBinaryData.length} bytes`, 'success');
             
-            // 3. Derive decryption key using the tag's serial number
-            this.shadowRoot.getElementById('playingInfo').textContent = 'Deriving decryption key...';
-            const decryptionKey = await this.encryptionService.deriveEncryptionKey(serial, timestamp);
-            debugLog('Decryption key derived successfully.', 'success');
+            // Step 3: Derive decryption key using physical tag serial + timestamp from package
+            this.shadowRoot.getElementById('playingInfo').textContent = '🔑 Deriving decryption key...';
+            const decryptionKey = await this.encryptionService.deriveEncryptionKey(this.tagSerial, messagePackage.timestamp);
+            debugLog('🔒 SECURITY: Decryption key derived from physical tag + package timestamp', 'success');
             
-            // 4. Decrypt audio from binary data
-            this.shadowRoot.getElementById('playingInfo').textContent = 'Decrypting audio...';
-            const decryptedAudio = await this.encryptionService.decryptFromBinary(encryptedBinaryData, decryptionKey);
-            debugLog(`Audio decrypted successfully: ${decryptedAudio.byteLength} bytes`, 'success');
+            // Step 4: Decrypt audio
+            this.shadowRoot.getElementById('playingInfo').textContent = '🔓 Decrypting audio...';
+            const decryptedAudio = await this.encryptionService.decryptFromBinary(messagePackage.encryptedAudio, decryptionKey);
+            debugLog(`🔒 SECURITY: Audio decrypted successfully (${decryptedAudio.byteLength} bytes)`, 'success');
             
-            // 5. Create playable audio Blob and set to audio element
-            const audioBlob = new Blob([decryptedAudio], { type: 'audio/webm' }); // Assuming webm format from recording
+            // Step 5: Create playable audio
+            const audioBlob = new Blob([decryptedAudio], { type: 'audio/webm' });
             const audioUrl = URL.createObjectURL(audioBlob);
             this.currentAudio.src = audioUrl;
+            this.currentAudio.style.display = 'block';
             
-            // 6. Decrypt and display transcript from the saved message data
+            // Step 6: Decrypt transcript
             let transcriptText = 'Transcript not available.';
-            if (messageData.encryptedTranscript) {
-                debugLog('Decrypting transcript from localStorage...');
+            if (messagePackage.encryptedTranscript) {
                 try {
-                    const decryptedTranscriptBinary = await this.encryptionService.decryptFromBase64(messageData.encryptedTranscript, decryptionKey);
-                    transcriptText = new TextDecoder().decode(decryptedTranscriptBinary);
-                    debugLog('Transcript decrypted successfully.', 'success');
+                    this.shadowRoot.getElementById('playingInfo').textContent = '🔓 Decrypting transcript...';
+                    transcriptText = await this.encryptionService.decryptFromBase64(messagePackage.encryptedTranscript, decryptionKey);
+                    debugLog('🔒 SECURITY: Transcript decrypted successfully.', 'success');
                 } catch (transcriptError) {
-                    debugLog(`Failed to decrypt transcript: ${transcriptError.message}`, 'warning');
-                    transcriptText = 'Failed to decrypt transcript.';
+                    debugLog(`🔒 SECURITY: Transcript decryption failed: ${transcriptError.message}`, 'warning');
+                    transcriptText = 'Transcript decryption failed.';
                 }
-            } else {
-                debugLog('Encrypted transcript not found in localStorage.', 'warning');
             }
-            this.shadowRoot.getElementById('playingTranscript').textContent = `"${transcriptText}"`;
-
-            this.shadowRoot.getElementById('playingInfo').textContent = `Ready to play!`;
-            this.showStatus('Message loaded and ready to play!', 'success');
             
-            // Auto-play the audio
+            // Step 7: Display results
+            this.shadowRoot.getElementById('playingTranscript').textContent = `"${transcriptText}"`;
+            this.shadowRoot.getElementById('playingInfo').textContent = `✅ Ready to play! (Duration: ${messagePackage.metadata?.duration || 'unknown'}s)`;
+            this.showStatus('🔒 Message decrypted successfully!', 'success');
+            
+            // Auto-play
             await this.currentAudio.play();
-            this.shadowRoot.getElementById('playButton').textContent = '⏸️'; // Change to pause icon
+            this.shadowRoot.getElementById('playButton').textContent = '⏸️';
 
         } catch (error) {
-            debugLog(`Playback failed: ${error.message}`, 'error');
-            this.showStatus(`Failed to play message: ${error.message}. Check console for details.`, 'error');
-            this.shadowRoot.getElementById('playingInfo').textContent = 'Error loading message.';
-            this.currentAudio.src = ''; // Clear audio source on error
+            debugLog(`🔒 SECURITY: Secure playback failed: ${error.message}`, 'error');
+            
+            // Determine if it's likely a wrong key error
+            const isKeyError = error.message.includes('decrypt') || error.message.includes('OperationError');
+            if (isKeyError) {
+                this.showStatus('🔒 Wrong physical key - this message requires a different Peeble.', 'error');
+                this.showErrorState();
+            } else {
+                this.showStatus(`🔒 Playback failed: ${error.message}`, 'error');
+            }
+            
+            this.shadowRoot.getElementById('playingInfo').textContent = 'Decryption failed.';
+            this.currentAudio.src = '';
         }
     }
 
-    /**
-     * Toggles play/pause for the current audio.
-     * @private
-     */
+    showErrorState() {
+        this.shadowRoot.getElementById('errorState').style.display = 'block';
+        this.shadowRoot.getElementById('playbackAudio').style.display = 'none';
+    }
+
     togglePlayback() {
-        if (this.currentAudio) {
+        if (this.currentAudio && this.currentAudio.src) {
             if (this.currentAudio.paused) {
                 this.currentAudio.play();
                 this.shadowRoot.getElementById('playButton').textContent = '⏸️';
@@ -275,18 +302,13 @@ class MessagePlayer extends HTMLElement {
         }
     }
 
-    /**
-     * Closes the playback interface and stops audio.
-     * @private
-     */
     closePlayback() {
         if (this.currentAudio) {
             this.currentAudio.pause();
-            this.currentAudio.src = ''; // Clear the audio source
+            this.currentAudio.src = '';
         }
-        // Dispatch event to parent to switch back to default view (e.g., creator mode or list)
         window.dispatchEvent(new CustomEvent('close-player'));
-        debugLog('Message player closed.');
+        debugLog('🔒 SECURITY: Secure message player closed.');
     }
 }
 

@@ -31,34 +31,34 @@ export function generateMessageId() {
 
 /**
  * Utility for parsing and creating Peeble-specific URLs.
+ * SECURITY: URLs now only contain messageId and ipfsHash - NO serial number!
  */
 export const URLParser = {
     /**
      * Extracts Peeble parameters from the current URL's hash.
-     * @returns {{serial: string|null, messageId: string|null, timestamp: string|null}}
+     * SECURE: Only returns messageId and ipfsHash - serial comes from NFC scan only
+     * @returns {{messageId: string|null, ipfsHash: string|null}}
      */
     getParams() {
         const urlParams = new URLSearchParams(window.location.hash.substring(1));
         return {
-            serial: urlParams.get('serial'),
             messageId: urlParams.get('messageId'),
-            timestamp: urlParams.get('timestamp')
+            ipfsHash: urlParams.get('ipfsHash')
         };
     },
 
     /**
-     * Creates a Peeble URL with the given parameters.
+     * Creates a secure Peeble URL with only public parameters.
+     * SECURITY: Serial number is NEVER included in URLs - only comes from physical NFC scan
      * @param {object} params - The parameters for the URL.
-     * @param {string} params.serial - The NFC tag's serial number.
      * @param {string} params.messageId - The message ID.
-     * @param {number} params.timestamp - The timestamp.
-     * @returns {string} The formatted Peeble URL.
+     * @param {string} params.ipfsHash - The IPFS hash containing encrypted data.
+     * @returns {string} The secure Peeble URL (no encryption key exposed).
      */
-    createNfcUrl({ serial, messageId, timestamp }) {
-        // Use a placeholder domain for development. In production, this would be peeble.app
+    createSecureNfcUrl({ messageId, ipfsHash }) {
         const baseUrl = window.location.origin + window.location.pathname;
-        const url = `${baseUrl}#serial=${serial}&messageId=${messageId}&timestamp=${timestamp}`;
-        debugLog(`Generated NFC URL: ${url}`);
+        const url = `${baseUrl}#messageId=${messageId}&ipfsHash=${ipfsHash}`;
+        debugLog(`Generated SECURE NFC URL (no serial): ${url}`);
         return url;
     }
 };
