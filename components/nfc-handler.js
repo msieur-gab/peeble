@@ -2,6 +2,8 @@
 
 import { NFCService } from '../services/nfc.js';
 import { debugLog } from '../services/utils.js';
+import { stateManager } from '../services/state-manager.js';
+import { eventBus } from '../services/pubsub.js';
 
 /**
  * Web Component responsible for initiating and managing NFC scanning and writing.
@@ -29,8 +31,8 @@ class NFCHandler extends HTMLElement {
     }
 
     setupEventListeners() {
-        window.addEventListener('start-nfc-write', this.handleStartNfcWrite.bind(this));
-        window.addEventListener('stop-nfc-write', this.handleStopNfcWrite.bind(this));
+        eventBus.subscribe('start-nfc-write', this.handleStartNfcWrite.bind(this));
+        eventBus.subscribe('stop-nfc-write', this.handleStopNfcWrite.bind(this));
     }
 
     connectedCallback() {
@@ -62,7 +64,6 @@ class NFCHandler extends HTMLElement {
      * @private
      */
     handleNfcTagScanned(data) {
-        // Display the serial number for debugging
         const serialDisplay = document.getElementById('nfc-serial-display');
         const serialNumberSpan = document.getElementById('serialNumber');
         if (serialDisplay && serialNumberSpan) {
@@ -88,11 +89,10 @@ class NFCHandler extends HTMLElement {
             debugLog('Blank NFC tag scanned or no URL record found.', 'info');
             this.statusIndicator.textContent = 'NFC Status: Blank Peeble scanned. Ready to create.';
             
-            // This is the fix: Generate a fallback serial if none is provided.
             const serial = data.serial || `PBL-TEMP-${Date.now()}`;
             debugLog(`Using serial: ${serial}`, 'info');
 
-            window.dispatchEvent(new CustomEvent('blank-nfc-scanned', { detail: { serial: serial } }));
+            eventBus.publish('blank-nfc-scanned', serial);
         }
     }
 
@@ -108,10 +108,10 @@ class NFCHandler extends HTMLElement {
 
     /**
      * Handles the 'start-nfc-write' event.
-     * @param {CustomEvent} event - The event containing the URL to write.
+     * @param {string} url - The URL to write.
      * @private
      */
-    handleStartNfcWrite(event) {
+    handleStartNfcWrite(url) {
         const support = this.nfcService.isSupported();
         if (!support.write && !support.legacyWrite) {
             debugLog('Cannot start NFC write, no supported writing interface.', 'error');
@@ -119,9 +119,8 @@ class NFCHandler extends HTMLElement {
             return;
         }
 
-        const urlToWrite = event.detail.url;
-        this.writeUrlQueue = urlToWrite;
-        debugLog(`Received request to write URL: ${urlToWrite}. Waiting for tag tap.`);
+        this.writeUrlQueue = url;
+        debugLog(`Received request to write URL: ${url}. Waiting for tag tap.`);
         this.statusIndicator.textContent = 'NFC Status: Ready to write. Tap a blank Peeble.';
     }
 
@@ -145,7 +144,7 @@ class NFCHandler extends HTMLElement {
             await this.nfcService.writeUrl(url);
             debugLog('URL successfully written to NFC tag.', 'success');
             this.statusIndicator.textContent = 'NFC Status: Peeble written! Scanning for new tags.';
-            window.dispatchEvent(new CustomEvent('nfc-write-complete'));
+            eventBus.publish('nfc-write-complete');
         } catch (error) {
             debugLog(`Failed to write URL to NFC tag: ${error.message}`, 'error');
             this.statusIndicator.textContent = `NFC Status: Write failed - ${error.message}`;

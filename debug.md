@@ -3,3 +3,6 @@ const event = new CustomEvent('blank-nfc-scanned', {
     detail: { serial: fakeSerial }
 });
 window.dispatchEvent(event);```
+
+Use this command in console  to simulate Blank NFC tag sca
+window.eventBus.publish('blank-nfc-scanned', '04:A6:49:15:3F:58:80');

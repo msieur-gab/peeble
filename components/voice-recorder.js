@@ -4,6 +4,8 @@ import { AudioService } from '../services/audio.js';
 import { EncryptionService } from '../services/encryption.js';
 import { StorageService } from '../services/storage.js';
 import { debugLog, generateMessageId, URLParser } from '../services/utils.js';
+import { stateManager } from '../services/state-manager.js';
+import { eventBus } from '../services/pubsub.js';
 
 /**
  * Web Component for the voice message recording and creation interface.
@@ -20,34 +22,29 @@ class VoiceRecorder extends HTMLElement {
 
         this.audioService = new AudioService();
         this.encryptionService = new EncryptionService();
-        // StorageService instance will be passed from main.js or peeble-app.js
         this.storageService = null;
-        this.statusDiv = null; // Reference to the status div in the shadow DOM
-        this.tagSerial = null; // The NFC tag's serial number
+        this.statusDiv = null;
+        this.tagSerial = null;
 
         this.audioBlob = null;
         this.recordingDuration = 0;
         this.currentTranscript = '';
 
-        // Bind event handlers
         this.handleRecordingTimeUpdate = this.handleRecordingTimeUpdate.bind(this);
         this.handleRecordingStop = this.handleRecordingStop.bind(this);
         this.handleTranscriptUpdate = this.handleTranscriptUpdate.bind(this);
         this.handleAudioServiceError = this.handleAudioServiceError.bind(this);
 
-        // Set up AudioService callbacks
         this.audioService.onRecordingTimeUpdate = this.handleRecordingTimeUpdate;
         this.audioService.onRecordingStop = this.handleRecordingStop;
         this.audioService.onTranscriptUpdate = this.handleTranscriptUpdate;
         this.audioService.onError = this.handleAudioServiceError;
         
-        // Listen for the custom event from the parent component
 
         this.render();
         this.setupEventListeners();
     }
     
-    // This is the missing callback that handles attribute changes.
     attributeChangedCallback(name, oldValue, newValue) {
         if (name === 'serial' && oldValue !== newValue) {
             this.tagSerial = newValue;
@@ -56,19 +53,10 @@ class VoiceRecorder extends HTMLElement {
         }
     }
     
-    /**
-     * Lifecycle callback to handle when the component is inserted into the DOM.
-     * This can now be simplified as the attribute handler does the heavy lifting.
-     */
     connectedCallback() {
         debugLog('VoiceRecorder connected.');
-        // The attributeChangedCallback handles setting the status message.
     }
     
-    /**
-     * Handles serial being set (replaces event-based approach)
-     * @param {string} serial - The NFC tag serial
-     */
     handleSerialSet(serial) {
         this.tagSerial = serial;
         debugLog(`VoiceRecorder received serial directly: ${this.tagSerial}`);
@@ -87,17 +75,10 @@ class VoiceRecorder extends HTMLElement {
         this.storageService = service;
     }
 
-    /**
-     * Renders the initial HTML structure of the voice recorder.
-     * @private
-     */
     render() {
         this.shadowRoot.innerHTML = `
             <style>
-                /* Import global styles (or copy relevant ones) */
                 @import '../style.css';
-
-                /* Component-specific styles if any overrides are needed */
                 .step { display: none; }
                 .step.active { display: block; }
                 .text-center { text-align: center; }
@@ -194,12 +175,6 @@ class VoiceRecorder extends HTMLElement {
         this.statusDiv = this.shadowRoot.getElementById('status');
     }
 
-    /**
-     * Displays a status message to the user.
-     * @param {string} message - The message to display.
-     * @param {'info'|'success'|'warning'|'error'} [type='info'] - The type of status message.
-     * @param {number} [duration=5000] - How long the message should be displayed in milliseconds.
-     */
     showStatus(message, type = 'info', duration = 5000) {
         if (this.statusDiv) {
             this.statusDiv.textContent = message;
@@ -219,10 +194,6 @@ class VoiceRecorder extends HTMLElement {
     }
 
 
-    /**
-     * Sets up event listeners for buttons and text areas.
-     * @private
-     */
     setupEventListeners() {
         this.shadowRoot.getElementById('recordBtn').addEventListener('click', () => this.toggleRecording());
         this.shadowRoot.getElementById('saveBtn').addEventListener('click', () => this.saveToIPFSAndWriteNFC());
@@ -232,11 +203,6 @@ class VoiceRecorder extends HTMLElement {
     }
 
 
-    /**
-     * Displays a specific step in the recording workflow.
-     * @param {string} stepId - The ID of the step to display ('recording', 'editing', 'success').
-     * @private
-     */
     showStep(stepId) {
         this.shadowRoot.querySelectorAll('.step').forEach(step => {
             step.classList.remove('active');
@@ -245,22 +211,18 @@ class VoiceRecorder extends HTMLElement {
         debugLog(`Switched to step: ${stepId}`);
     }
 
-    /**
-     * Toggles the recording state (start/stop).
-     * @private
-     */
     async toggleRecording() {
-        debugLog(`Toggle recording called. Current serial is: ${this.tagSerial}`);
-        if (!this.tagSerial) {
+        const { tagSerial } = stateManager.getState();
+        if (!tagSerial) {
             this.showStatus('Please scan a blank NFC tag first.', 'warning');
             return;
         }
 
         if (this.audioService.getRecordingState()) {
             this.audioService.stopRecording();
-            this.updateRecordingUI(false, true); // Indicate processing
+            this.updateRecordingUI(false, true);
         } else {
-            this.currentTranscript = ''; // Clear transcript for new recording
+            this.currentTranscript = '';
             this.shadowRoot.getElementById('transcriptText').value = '';
             this.updateCharCount();
             await this.audioService.startRecording();
@@ -268,12 +230,6 @@ class VoiceRecorder extends HTMLElement {
         }
     }
 
-    /**
-     * Updates the UI based on recording state.
-     * @param {boolean} isRecording - True if recording, false otherwise.
-     * @param {boolean} isProcessing - True if processing after recording, false otherwise.
-     * @private
-     */
     updateRecordingUI(isRecording, isProcessing = false) {
         const recordBtn = this.shadowRoot.getElementById('recordBtn');
         const recordIcon = this.shadowRoot.getElementById('recordIcon');
@@ -302,11 +258,6 @@ class VoiceRecorder extends HTMLElement {
         }
     }
 
-    /**
-     * Callback for audio service to update recording time.
-     * @param {number} seconds - Elapsed seconds.
-     * @private
-     */
     handleRecordingTimeUpdate(seconds) {
         this.recordingDuration = seconds;
         const minutes = Math.floor(seconds / 60);
@@ -315,12 +266,6 @@ class VoiceRecorder extends HTMLElement {
             `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
 
-    /**
-     * Callback for audio service when recording stops.
-     * @param {Blob} audioBlob - The recorded audio Blob.
-     * @param {number} duration - The duration of the recording in seconds.
-     * @private
-     */
     handleRecordingStop(audioBlob, duration) {
         this.audioBlob = audioBlob;
         this.recordingDuration = duration;
@@ -329,59 +274,42 @@ class VoiceRecorder extends HTMLElement {
         audioPlayback.src = audioUrl;
         audioPlayback.style.display = 'block';
         this.showStep('editing');
-        this.updateRecordingUI(false, false); // Reset UI after processing
+        this.updateRecordingUI(false, false);
         debugLog(`Recording stopped. Duration: ${duration}s, Blob size: ${audioBlob.size} bytes`);
     }
 
-    /**
-     * Callback for audio service to update transcript.
-     * @param {string} transcript - The current transcript.
-     * @private
-     */
     handleTranscriptUpdate(transcript) {
         this.currentTranscript = transcript;
         this.shadowRoot.getElementById('transcriptText').value = transcript;
         this.updateCharCount();
     }
 
-    /**
-     * Callback for audio service errors.
-     * @param {string} errorMessage - The error message.
-     * @private
-     */
     handleAudioServiceError(errorMessage) {
         this.showStatus(errorMessage, 'error');
-        this.updateRecordingUI(false, false); // Reset UI on error
+        this.updateRecordingUI(false, false);
     }
 
-    /**
-     * Updates the character count for the transcript.
-     * @private
-     */
     updateCharCount() {
         const textarea = this.shadowRoot.getElementById('transcriptText');
         const charCount = this.shadowRoot.getElementById('charCount');
         charCount.textContent = textarea.value.length;
         
         if (textarea.value.length > 500) {
-            charCount.style.color = 'var(--accent-color)'; // Red color for overflow
+            charCount.style.color = 'var(--accent-color)';
         } else {
             charCount.style.color = 'var(--secondary-color)';
         }
     }
 
-    /**
-     * Saves the encrypted message to IPFS and prepares to write to NFC.
-     * @private
-     */
     async saveToIPFSAndWriteNFC() {
         debugLog('Save to IPFS button clicked. Starting save process...');
         const transcript = this.shadowRoot.getElementById('transcriptText').value.trim();
+        const { tagSerial, pinataApiKey, pinataSecret } = stateManager.getState();
         
         debugLog(`Transcript value before validation: '${transcript}'`);
-        debugLog(`Tag serial: '${this.tagSerial}'`);
+        debugLog(`Tag serial: '${tagSerial}'`);
 
-        if (!this.tagSerial) {
+        if (!tagSerial) {
             this.showStatus('Error: No NFC tag serial number available. Please scan a blank tag to start.', 'error');
             return;
         }
@@ -397,7 +325,7 @@ class VoiceRecorder extends HTMLElement {
             this.showStatus('No audio recorded. Please record a message first.', 'error');
             return;
         }
-        if (!this.storageService || (!this.storageService.apiKey || !this.storageService.secret)) {
+        if (!pinataApiKey || !pinataSecret) {
             this.showStatus('Pinata API credentials are not set. Please configure them.', 'error');
             return;
         }
@@ -413,42 +341,36 @@ class VoiceRecorder extends HTMLElement {
 
         try {
             debugLog('Entering try block. Generating message ID and timestamp.');
-            // Generate unique identifiers for this message
             const messageId = generateMessageId();
             const timestamp = Date.now();
             
-            debugLog(`Generated message data: ID=${messageId}, Serial: ${this.tagSerial}, Timestamp=${timestamp}`);
+            debugLog(`Generated message data: ID=${messageId}, Serial: ${tagSerial}, Timestamp=${timestamp}`);
             
             saveBtn.textContent = 'Deriving encryption key...';
-            // Use the tag's serial number for key derivation
-            const encryptionKey = await this.encryptionService.deriveEncryptionKey(this.tagSerial, timestamp);
+            const encryptionKey = await this.encryptionService.deriveEncryptionKey(tagSerial, timestamp);
             debugLog('Encryption key derived successfully.', 'success');
             
-            // Convert audio blob to ArrayBuffer for encryption
             saveBtn.textContent = 'Encrypting audio...';
             const audioBuffer = await this.audioBlob.arrayBuffer();
             const encryptedAudioBinary = await this.encryptionService.encryptDataToBinary(audioBuffer, encryptionKey);
             debugLog(`Audio encrypted to binary: ${encryptedAudioBinary.length} bytes`, 'success');
             
-            // Encrypt transcript (optional, but good for consistency/future features)
             saveBtn.textContent = 'Encrypting transcript...';
             const encryptedTranscript = await this.encryptionService.encryptDataToBase64(transcript, encryptionKey);
             debugLog(`Transcript encrypted to Base64: ${encryptedTranscript.length} characters`, 'success');
             
-            // Upload encrypted audio to IPFS
             saveBtn.textContent = 'Uploading to IPFS...';
             const ipfsHash = await this.storageService.uploadToPinata(encryptedAudioBinary, `${messageId}-audio.encrypted`);
             debugLog(`IPFS upload complete: ${ipfsHash}`, 'success');
             
             debugLog('Saving message metadata to localStorage...');
-            // Store message metadata locally (simulating a saved "Peeble stone" for the reader)
             const messageData = {
                 messageId,
-                serial: this.tagSerial,
+                serial: tagSerial,
                 timestamp,
                 ipfsHash,
-                encryptedTranscript, // Store encrypted transcript for local playback
-                originalTranscript: transcript, // Store original for preview in reader list
+                encryptedTranscript,
+                originalTranscript: transcript,
                 duration: this.recordingDuration,
                 created: new Date().toISOString()
             };
@@ -458,19 +380,14 @@ class VoiceRecorder extends HTMLElement {
             localStorage.setItem('peebleMessages', JSON.stringify(savedMessages));
             debugLog('Message metadata saved to localStorage.', 'success');
 
-            // Generate the NFC URL, now using the tag's serial number
-            const nfcUrl = URLParser.createNfcUrl({ serial: this.tagSerial, messageId: messageId, timestamp: timestamp });
+            const nfcUrl = URLParser.createNfcUrl({ serial: tagSerial, messageId: messageId, timestamp: timestamp });
 
-            // Display success message and generated URL for NFC writing
             this.shadowRoot.getElementById('nfcUrlDisplay').textContent = nfcUrl;
             this.shadowRoot.getElementById('messageIdDisplay').textContent = messageId;
             this.showStep('success');
-            this.showStatus('Message saved! Now tap your Peeble to write the URL.', 'success', 0); // Keep message visible
+            this.showStatus('Message saved! Now tap your Peeble to write the URL.', 'success', 0);
 
-            // Dispatch event to main app to trigger NFC write mode
-            // The NFC handler will listen for this and initiate writing when a tag is tapped.
-            const event = new CustomEvent('start-nfc-write', { detail: { url: nfcUrl } });
-            window.dispatchEvent(event);
+            eventBus.publish('start-nfc-write', nfcUrl);
             
         } catch (error) {
             debugLog(`Save and NFC write preparation failed: ${error.message}`, 'error');
@@ -481,10 +398,6 @@ class VoiceRecorder extends HTMLElement {
         }
     }
 
-    /**
-     * Resets the recorder to allow a new recording.
-     * @private
-     */
     retryRecording() {
         const audioPlayback = this.shadowRoot.getElementById('audioPlayback');
         audioPlayback.src = '';
@@ -501,16 +414,10 @@ class VoiceRecorder extends HTMLElement {
         this.showStatus('Ready to record your message.');
     }
 
-    /**
-     * Resets the entire creator workflow.
-     * @private
-     */
     resetCreator() {
         this.retryRecording();
-        // Also clear any NFC writing instructions
         this.showStatus('Ready to create a new message.');
-        // Notify parent to potentially stop NFC write mode if active
-        window.dispatchEvent(new CustomEvent('stop-nfc-write'));
+        eventBus.publish('stop-nfc-write');
     }
 }
 
