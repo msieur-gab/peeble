@@ -106,17 +106,35 @@ class StateManager {
     restorePhysicalKey() {
         try {
             const keyDataStr = sessionStorage.getItem('peeble-physical-key');
-            if (!keyDataStr) return;
+            if (!keyDataStr) {
+                debugLog('🔒 SECURITY: No physical key found in sessionStorage');
+                return;
+            }
 
             const keyData = JSON.parse(keyDataStr);
             const age = Date.now() - keyData.timestamp;
             
-            if (age > 30000) { // 30 seconds max age
+            debugLog(`🔒 SECURITY: Found physical key, age: ${age}ms`);
+            
+            if (age > 60000) { // Increased to 60 seconds max age
+                debugLog('🔒 SECURITY: Physical key expired (>60s), removing');
                 sessionStorage.removeItem('peeble-physical-key');
                 return;
             }
 
-            if (keyData.url !== window.location.href) {
+            // FIX: More flexible URL matching - compare the core parameters instead of full URLs
+            const storedUrl = new URL(keyData.url);
+            const currentUrl = new URL(window.location.href);
+            const storedParams = new URLSearchParams(storedUrl.hash.substring(1));
+            const currentParams = new URLSearchParams(currentUrl.hash.substring(1));
+            
+            const storedMessageId = storedParams.get('messageId');
+            const storedIpfsHash = storedParams.get('ipfsHash');
+            const currentMessageId = currentParams.get('messageId');
+            const currentIpfsHash = currentParams.get('ipfsHash');
+            
+            if (storedMessageId !== currentMessageId || storedIpfsHash !== currentIpfsHash) {
+                debugLog(`🔒 SECURITY: URL mismatch - stored: ${storedMessageId}/${storedIpfsHash}, current: ${currentMessageId}/${currentIpfsHash}`);
                 sessionStorage.removeItem('peeble-physical-key');
                 return;
             }
@@ -127,8 +145,8 @@ class StateManager {
                 physicalKeyTimestamp: keyData.timestamp
             });
             
-            // Clear after use
-            sessionStorage.removeItem('peeble-physical-key');
+            // FIX: Don't clear the key immediately - let it expire naturally or be cleared after successful load
+            // sessionStorage.removeItem('peeble-physical-key');
             
             // Check if we can now auto-load
             this.checkAndTriggerAutoLoad();
@@ -153,9 +171,22 @@ class StateManager {
             currentStep !== 'playing') {
             
             debugLog('🔒 AUTO-LOAD: All conditions met - triggering automatic load!', 'success');
+            
+            // Clear the physical key now that we're about to use it
+            sessionStorage.removeItem('peeble-physical-key');
+            
             eventBus.publish('load-secure-message');
         } else {
             debugLog('🔒 AUTO-LOAD: Not ready yet, waiting for missing components...');
+            
+            // FIX: If we have the tag serial but missing storage service, retry after a delay
+            if (appMode === 'READER' && tagSerial && messageId && ipfsHash && !storageService) {
+                debugLog('🔒 AUTO-LOAD: Have physical key but missing storage service, will retry...', 'warning');
+                setTimeout(() => {
+                    debugLog('🔒 AUTO-LOAD: Retrying auto-load check...');
+                    this.checkAndTriggerAutoLoad();
+                }, 1000);
+            }
         }
     }
 
@@ -191,7 +222,9 @@ class StateManager {
                         tagSerial: data.serial,
                         messageId: messageId,
                         ipfsHash: ipfsHash,
-                        currentStep: 'waiting'  // Keep as waiting, let auto-load set to loading
+                        currentStep: 'waiting',  // Keep as waiting, let auto-load set to loading
+                        statusMessage: '🔒 Physical key captured, loading message...',
+                        statusType: 'info'
                     });
                     
                     // Use the new auto-load check method
@@ -200,18 +233,30 @@ class StateManager {
                 }
             }
             
-            // Store physical key temporarily for page navigation
-            const keyData = {
-                serial: data.serial,
-                timestamp: Date.now(),
-                url: data.url
-            };
-            sessionStorage.setItem('peeble-physical-key', JSON.stringify(keyData));
-            
-            // Navigate to the URL (this will trigger a page reload)
-            debugLog('🔒 SECURITY: Navigating to secure message URL');
-            window.location.href = data.url;
-            return;
+            // FIX: Store physical key with more robust data and don't navigate immediately if URL is malformed
+            try {
+                const keyData = {
+                    serial: data.serial,
+                    timestamp: Date.now(),
+                    url: data.url,
+                    messageId: messageId,
+                    ipfsHash: ipfsHash
+                };
+                sessionStorage.setItem('peeble-physical-key', JSON.stringify(keyData));
+                debugLog(`🔒 SECURITY: Physical key stored for navigation - Serial: ${data.serial}, MessageId: ${messageId}`);
+                
+                // Navigate to the URL (this will trigger a page reload)
+                debugLog('🔒 SECURITY: Navigating to secure message URL');
+                window.location.href = data.url;
+                return;
+            } catch (error) {
+                debugLog(`🔒 SECURITY: Error storing physical key: ${error.message}`, 'error');
+                this.setState({
+                    statusMessage: '🔒 Invalid message URL format',
+                    statusType: 'error'
+                });
+                return;
+            }
         }
         
         // PRIORITY 3: Blank tag - only for creation mode if not in write mode
@@ -356,6 +401,19 @@ class StateManager {
         
         if (!tagSerial || !messageId || !ipfsHash || !storageService) {
             debugLog('🔒 SECURITY: Missing parameters for secure load', 'warning');
+            debugLog(`🔒 PARAMS: Serial=${!!tagSerial}, MessageId=${!!messageId}, Hash=${!!ipfsHash}, Storage=${!!storageService}`);
+            
+            // FIX: Show more specific error message
+            let missingParams = [];
+            if (!tagSerial) missingParams.push('Physical Key');
+            if (!messageId) missingParams.push('Message ID');
+            if (!ipfsHash) missingParams.push('IPFS Hash');
+            if (!storageService) missingParams.push('Storage Service');
+            
+            this.setState({
+                statusMessage: `🔒 Missing: ${missingParams.join(', ')}`,
+                statusType: 'warning'
+            });
             return;
         }
 
@@ -426,6 +484,9 @@ class StateManager {
         if (this._state.audioUrl) {
             URL.revokeObjectURL(this._state.audioUrl);
         }
+        
+        // Clear any remaining physical key
+        sessionStorage.removeItem('peeble-physical-key');
         
         this.setState({
             appMode: 'CREATOR',
