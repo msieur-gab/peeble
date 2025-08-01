@@ -35,8 +35,16 @@ class MessagePlayer extends HTMLElement {
     setStorageService(service) {
         this.storageService = service;
         debugLog('🔒 SECURITY: StorageService set in MessagePlayer.');
-        // FIX: Explicitly call loadSecureMessage now that the service is available
-        this.loadSecureMessage();
+        // Update manual load button visibility
+        this.updateManualLoadButton();
+        // FIX: Explicitly call loadSecureMessage now that the service is available  
+        // Only auto-load if we have all required parameters
+        if (this.tagSerial && this.messageId && this.ipfsHash) {
+            debugLog('🔒 SECURITY: All parameters available, auto-loading message...');
+            this.loadSecureMessage();
+        } else {
+            debugLog(`🔒 SECURITY: Missing parameters for auto-load - Serial: ${!!this.tagSerial}, MessageId: ${!!this.messageId}, Hash: ${!!this.ipfsHash}`);
+        }
     }
 
     render() {
@@ -115,6 +123,26 @@ class MessagePlayer extends HTMLElement {
                     color: #666;
                     margin-bottom: 15px;
                 }
+                .manual-load-btn {
+                    background: #17a2b8;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-size: 0.9em;
+                    cursor: pointer;
+                    margin: 5px;
+                    transition: all 0.3s ease;
+                }
+                .manual-load-btn:hover {
+                    background: #138496;
+                    transform: translateY(-1px);
+                }
+                .manual-load-btn:disabled {
+                    background: #6c757d;
+                    cursor: not-allowed;
+                    transform: none;
+                }
             </style>
             <div class="message-player-container">
                 <div class="status" id="status"></div>
@@ -131,6 +159,12 @@ class MessagePlayer extends HTMLElement {
                         <h4 id="playingTitle">🔄 Loading secure message...</h4>
                         <p id="playingInfo">Verifying physical key and downloading...</p>
                     </div>
+                </div>
+                
+                <div style="text-align: center; margin: 15px 0;">
+                    <button class="manual-load-btn" id="manualLoadBtn" style="display: none;">
+                        🔓 Manual Load (Testing)
+                    </button>
                 </div>
                 
                 <div id="playingTranscript">Decrypting transcript...</div>
@@ -167,6 +201,7 @@ class MessagePlayer extends HTMLElement {
     setupEventListeners() {
         this.shadowRoot.getElementById('playButton').addEventListener('click', () => this.togglePlayback());
         this.shadowRoot.getElementById('closePlayerBtn').addEventListener('click', () => this.closePlayback());
+        this.shadowRoot.getElementById('manualLoadBtn').addEventListener('click', () => this.manualLoadMessage());
         this.currentAudio = this.shadowRoot.getElementById('playbackAudio');
         this.currentAudio.addEventListener('ended', () => {
             this.shadowRoot.getElementById('playButton').textContent = '▶️';
@@ -190,10 +225,36 @@ class MessagePlayer extends HTMLElement {
                 this.ipfsHash = newValue;
             }
 
+            // Show manual load button if we have all parameters but no storage service yet
+            this.updateManualLoadButton();
+
             // Reload message if we have the storage service and key parameters
             if (this.storageService && this.tagSerial && this.messageId && this.ipfsHash) {
                 this.loadSecureMessage();
             }
+        }
+    }
+
+    updateManualLoadButton() {
+        const manualBtn = this.shadowRoot.getElementById('manualLoadBtn');
+        if (manualBtn) {
+            // Show button if we have all params but no storage service, or if loading failed
+            const shouldShow = this.tagSerial && this.messageId && this.ipfsHash && 
+                               (!this.storageService || this.shadowRoot.getElementById('playingInfo').textContent.includes('failed'));
+            manualBtn.style.display = shouldShow ? 'inline-block' : 'none';
+        }
+    }
+
+    manualLoadMessage() {
+        debugLog('🔓 Manual load button clicked - forcing message load');
+        if (this.tagSerial && this.messageId && this.ipfsHash) {
+            if (!this.storageService) {
+                this.showStatus('StorageService not available - check Pinata credentials', 'error');
+                return;
+            }
+            this.loadSecureMessage();
+        } else {
+            this.showStatus('Missing required parameters for decryption', 'error');
         }
     }
 
@@ -269,6 +330,9 @@ class MessagePlayer extends HTMLElement {
             await this.currentAudio.play();
             this.shadowRoot.getElementById('playButton').textContent = '⏸️';
 
+            // Hide manual load button on success
+            this.updateManualLoadButton();
+
         } catch (error) {
             debugLog(`🔒 SECURITY: Secure playback failed: ${error.message}`, 'error');
             
@@ -283,6 +347,9 @@ class MessagePlayer extends HTMLElement {
             
             this.shadowRoot.getElementById('playingInfo').textContent = 'Decryption failed.';
             this.currentAudio.src = '';
+            
+            // Show manual load button on error for retry
+            this.updateManualLoadButton();
         }
     }
 
