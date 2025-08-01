@@ -170,7 +170,9 @@ export class StorageService {
      * @returns {Promise<object>} A promise that resolves to the message package.
      */
     async downloadMessagePackage(ipfsHash) {
-        debugLog(`Downloading secure package from IPFS: ${ipfsHash}`);
+        debugLog(`🔽 STARTING IPFS DOWNLOAD`, 'info');
+        debugLog(`📋 Package Hash: ${ipfsHash}`, 'info');
+        debugLog(`📋 Mobile Debug Mode: Full logging enabled`, 'info');
         
         // Try CORS-friendly IPFS gateways first
         const gateways = [
@@ -179,13 +181,24 @@ export class StorageService {
             `${this.pinataGatewayUrl}${ipfsHash}` // Pinata gateway (may have CORS issues)
         ];
         
+        debugLog(`📋 Will try ${gateways.length} IPFS gateways in order`, 'info');
+        
         let lastError = null;
         
         for (let i = 0; i < gateways.length; i++) {
             const url = gateways[i];
-            debugLog(`Trying IPFS gateway ${i + 1}/${gateways.length}: ${url}`);
+            const gatewayName = url.includes('ipfs.io') ? 'IPFS.IO' : 
+                              url.includes('cloudflare') ? 'CLOUDFLARE' : 'PINATA';
+            
+            debugLog(`🌐 GATEWAY ${i + 1}/${gateways.length}: ${gatewayName}`, 'info');
+            debugLog(`📋 Full URL: ${url}`, 'info');
             
             try {
+                debugLog(`📤 Sending fetch request...`, 'info');
+                debugLog(`📋 Request mode: CORS`, 'info');
+                debugLog(`📋 Request headers: Accept=application/json`, 'info');
+                
+                const fetchStart = Date.now();
                 const response = await fetch(url, {
                     method: 'GET',
                     mode: 'cors', // Explicitly request CORS
@@ -196,23 +209,49 @@ export class StorageService {
                     // Add cache-busting to avoid stale responses
                     cache: 'no-cache'
                 });
+                const fetchTime = Date.now() - fetchStart;
 
-                debugLog(`Gateway ${i + 1} response: ${response.status} ${response.statusText}`);
+                debugLog(`📥 Response received in ${fetchTime}ms`, 'info');
+                debugLog(`📋 Status: ${response.status} ${response.statusText}`, 'info');
+                debugLog(`📋 Content-Type: ${response.headers.get('content-type') || 'unknown'}`, 'info');
+                debugLog(`📋 CORS headers: ${response.headers.get('access-control-allow-origin') || 'none'}`, 'info');
 
                 if (!response.ok) {
+                    debugLog(`❌ HTTP Error Response`, 'error');
+                    debugLog(`📋 Status Code: ${response.status}`, 'error');
+                    debugLog(`📋 Status Text: ${response.statusText}`, 'error');
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
+                debugLog(`✅ HTTP Response OK - parsing JSON...`, 'success');
+                const jsonStart = Date.now();
                 const packageData = await response.json();
-                debugLog(`Package downloaded successfully from gateway ${i + 1}`, 'success');
+                const jsonTime = Date.now() - jsonStart;
+                
+                debugLog(`✅ JSON parsed in ${jsonTime}ms`, 'success');
+                debugLog(`📋 Package contains: messageId, timestamp, encryptedAudio, encryptedTranscript, metadata`, 'info');
+                debugLog(`📋 MessageId from package: ${packageData.messageId}`, 'info');
+                debugLog(`📋 Timestamp from package: ${packageData.timestamp}`, 'info');
+                debugLog(`📋 Audio data length: ${packageData.encryptedAudio?.length || 0} chars`, 'info');
+                debugLog(`📋 Transcript data length: ${packageData.encryptedTranscript?.length || 0} chars`, 'info');
 
+                debugLog(`🔄 Converting base64 audio back to binary...`, 'info');
                 // Convert base64 audio back to Uint8Array safely
                 const audioBase64 = packageData.encryptedAudio;
+                if (!audioBase64) {
+                    throw new Error('No encrypted audio data in package');
+                }
+                
+                const binaryStart = Date.now();
                 const binaryString = atob(audioBase64);
                 const encryptedAudio = new Uint8Array(binaryString.length);
                 for (let i = 0; i < binaryString.length; i++) {
                     encryptedAudio[i] = binaryString.charCodeAt(i);
                 }
+                const binaryTime = Date.now() - binaryStart;
+                
+                debugLog(`✅ Binary conversion complete in ${binaryTime}ms`, 'success');
+                debugLog(`📋 Final audio binary size: ${encryptedAudio.length} bytes`, 'info');
 
                 const messagePackage = {
                     messageId: packageData.messageId,
@@ -222,34 +261,55 @@ export class StorageService {
                     metadata: packageData.metadata
                 };
 
-                debugLog(`Package downloaded successfully: ${messagePackage.messageId}`, 'success');
+                debugLog(`🎉 IPFS DOWNLOAD COMPLETE!`, 'success');
+                debugLog(`✅ Gateway used: ${gatewayName}`, 'success');
+                debugLog(`✅ Package ready for decryption`, 'success');
                 return messagePackage;
                 
             } catch (error) {
                 lastError = error;
-                debugLog(`Gateway ${i + 1} failed: ${error.message}`, 'warning');
+                debugLog(`❌ GATEWAY ${i + 1} FAILED: ${error.name}`, 'error');
+                debugLog(`📋 Error message: ${error.message}`, 'error');
+                debugLog(`📋 Error type: ${error.constructor.name}`, 'error');
                 
-                // If this is a CORS error, be more specific
-                if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
-                    debugLog(`Gateway ${i + 1} blocked by CORS policy`, 'warning');
+                // Detailed error analysis
+                if (error.message.includes('Failed to fetch')) {
+                    debugLog(`📋 Analysis: Network/CORS issue - browser blocked request`, 'error');
+                    debugLog(`📋 Possible causes: CORS policy, network connectivity, gateway down`, 'error');
+                } else if (error.message.includes('JSON')) {
+                    debugLog(`📋 Analysis: JSON parsing failed - invalid response format`, 'error');
+                } else if (error.message.includes('HTTP')) {
+                    debugLog(`📋 Analysis: Server returned error status code`, 'error');
+                } else {
+                    debugLog(`📋 Analysis: Unknown error type`, 'error');
                 }
                 
                 // If this isn't the last gateway, continue trying
                 if (i < gateways.length - 1) {
-                    debugLog(`Trying next gateway...`);
+                    debugLog(`🔄 Trying next gateway...`, 'info');
+                    debugLog(`⏳ Brief delay before next attempt...`, 'info');
+                    // Small delay between attempts
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                     continue;
+                } else {
+                    debugLog(`❌ All gateways exhausted`, 'error');
                 }
             }
         }
 
-        // All gateways failed - provide helpful error message
-        debugLog(`All IPFS gateways failed. Last error: ${lastError.message}`, 'error');
+        // All gateways failed - provide comprehensive error summary
+        debugLog(`💥 IPFS DOWNLOAD COMPLETELY FAILED`, 'error');
+        debugLog(`📋 Tried ${gateways.length} different IPFS gateways`, 'error');
+        debugLog(`📋 Final error: ${lastError.message}`, 'error');
         
         const corsError = lastError.message.includes('Failed to fetch');
         if (corsError) {
-            throw new Error(`CORS issue preventing IPFS download. Try refreshing the page or check browser console for details.`);
+            debugLog(`📋 Root cause: CORS (Cross-Origin Resource Sharing) blocking`, 'error');
+            debugLog(`📋 Solution needed: CORS proxy or alternative download method`, 'error');
+            throw new Error(`CORS policy blocked IPFS download from all gateways`);
         } else {
-            throw new Error(`Failed to download package from IPFS: ${lastError.message}`);
+            debugLog(`📋 Root cause: ${lastError.constructor.name}`, 'error');
+            throw new Error(`All IPFS gateways failed: ${lastError.message}`);
         }
     }
 
