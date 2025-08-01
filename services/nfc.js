@@ -49,35 +49,81 @@ export class NFCService {
             this.ndefReader = new NDEFReader();
 
             this.ndefReader.onreading = (event) => {
-                debugLog('NFC tag detected!', 'success');
+                debugLog('🔍 NFC TAG DETECTED - Raw Event Analysis:', 'info');
+                
+                // FIX: Comprehensive event analysis
+                debugLog(`   Event type: ${event.type}`, 'info');
+                debugLog(`   Event.serialNumber: ${event.serialNumber || 'UNDEFINED'}`, 'info');
+                debugLog(`   Event.message: ${event.message ? 'PRESENT' : 'UNDEFINED'}`, 'info');
+                
+                // FIX: Extract serial number following W3C specification
+                let extractedSerial = null;
+                if (event.serialNumber) {
+                    extractedSerial = event.serialNumber;
+                    debugLog(`✅ SERIAL EXTRACTED: ${extractedSerial}`, 'success');
+                } else {
+                    debugLog(`❌ NO SERIAL: event.serialNumber is undefined`, 'error');
+                    // Log all available properties for debugging
+                    debugLog(`   Available event properties: ${Object.keys(event).join(', ')}`, 'info');
+                }
+
                 const message = event.message;
-                const serialNumber = event.serialNumber;
                 let urlRecord = null;
 
-                // Iterate through NDEF records to find a URL
-                for (const record of message.records) {
-                    if (record.recordType === 'url') {
-                        // Decode URL record payload
-                        const decoder = new TextDecoder();
-                        urlRecord = decoder.decode(record.data);
-                        debugLog(`Found URL record: ${urlRecord}`, 'info');
-                        break;
+                // FIX: Better URL extraction with debugging
+                if (message && message.records) {
+                    debugLog(`   Message has ${message.records.length} records`, 'info');
+                    
+                    // Iterate through NDEF records to find a URL
+                    for (let i = 0; i < message.records.length; i++) {
+                        const record = message.records[i];
+                        debugLog(`   Record ${i}: type=${record.recordType}, dataLength=${record.data ? record.data.byteLength : 'N/A'}`, 'info');
+                        
+                        if (record.recordType === 'url') {
+                            try {
+                                // Decode URL record payload
+                                const decoder = new TextDecoder();
+                                urlRecord = decoder.decode(record.data);
+                                debugLog(`✅ URL EXTRACTED: ${urlRecord}`, 'success');
+                                break;
+                            } catch (error) {
+                                debugLog(`❌ URL DECODE ERROR: ${error.message}`, 'error');
+                            }
+                        }
                     }
+                } else {
+                    debugLog(`   No message or records found in event`, 'warning');
                 }
+
+                // FIX: Always provide a serial, even if we have to generate one
+                const finalSerial = extractedSerial || `TEMP-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+                if (!extractedSerial) {
+                    debugLog(`⚠️ GENERATED TEMPORARY SERIAL: ${finalSerial}`, 'warning');
+                }
+
+                debugLog(`🔍 FINAL SCAN RESULT:`, 'info');
+                debugLog(`   Serial: ${finalSerial}`, 'info');
+                debugLog(`   URL: ${urlRecord || 'NONE'}`, 'info');
+
                 // Pass both the URL and the serial number to the callback
-                this.onNfcTagScanned({ url: urlRecord, serial: serialNumber });
+                this.onNfcTagScanned({ 
+                    url: urlRecord, 
+                    serial: finalSerial,
+                    rawEvent: event // Include raw event for debugging
+                });
             };
 
             this.ndefReader.onreadingerror = (event) => {
-                debugLog(`NFC reading error: ${event.message}`, 'error');
-                this.onNfcError(`NFC reading error: ${event.message}`);
+                debugLog(`❌ NFC READING ERROR:`, 'error');
+                debugLog(`   Error: ${event.error || event.message || 'Unknown error'}`, 'error');
+                this.onNfcError(`NFC reading error: ${event.error || event.message || 'Unknown error'}`);
             };
 
             await this.ndefReader.scan();
             this.isScanning = true;
-            debugLog('NFC scanning initiated successfully. Tap a tag to scan.', 'success');
+            debugLog('✅ NFC scanning initiated successfully. Tap a tag to scan.', 'success');
         } catch (error) {
-            debugLog(`Error starting NFC scan: ${error.message}`, 'error');
+            debugLog(`❌ ERROR STARTING NFC SCAN: ${error.name}: ${error.message}`, 'error');
             this.onNfcError(`Failed to start NFC scan: ${error.message}. Ensure permissions are granted.`);
             this.isScanning = false;
         }

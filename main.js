@@ -1,6 +1,5 @@
 // main.js
 
-
 import { debugLog } from './services/utils.js';
 import { StorageService } from './services/storage.js';
 import { stateManager } from './services/state-manager.js';
@@ -83,11 +82,58 @@ window.testPinataConnection = async function() {
 };
 
 /**
+ * Debug function to manually trigger NFC tag scan simulation
+ * @global
+ */
+window.simulateNfcScan = function(serial = 'TEST-SERIAL-123', url = null) {
+    debugLog(`🔧 DEBUG: Simulating NFC scan with serial: ${serial}, url: ${url || 'NONE'}`, 'warning');
+    eventBus.publish('nfc-tag-scanned', { 
+        url: url, 
+        serial: serial 
+    });
+};
+
+/**
+ * Debug function to check current state
+ * @global
+ */
+window.debugState = () => {
+    const state = stateManager.getState();
+    console.log('=== CURRENT STATE ===');
+    console.log('App Mode:', state.appMode);
+    console.log('Current Step:', state.currentStep);
+    console.log('Tag Serial:', state.tagSerial ? `✅ ${state.tagSerial}` : '❌ Missing');
+    console.log('Message ID:', state.messageId ? `✅ ${state.messageId}` : '❌ Missing');
+    console.log('IPFS Hash:', state.ipfsHash ? `✅ ${state.ipfsHash.substring(0, 10)}...` : '❌ Missing');
+    console.log('Storage Service:', state.storageService ? '✅ Present' : '❌ Missing');
+    console.log('NFC Write Mode:', state.nfcWriteMode);
+    console.log('Write URL Queue:', state.writeUrlQueue ? `✅ ${state.writeUrlQueue.substring(0, 30)}...` : '❌ Missing');
+    console.log('Status Message:', state.statusMessage);
+    return state;
+};
+
+/**
+ * Debug function to force auto-load
+ * @global
+ */
+window.forceAutoLoad = () => {
+    debugLog('🔧 DEBUG: Forcing auto-load check...', 'warning');
+    stateManager.checkAndTriggerAutoLoad();
+};
+
+/**
  * Main application initialization logic.
  * Runs when the DOM is fully loaded.
  */
 document.addEventListener('DOMContentLoaded', () => {
     debugLog('DOM Content Loaded. Initializing Reactive Peeble App.');
+
+    // FIX: Add event listener to track ALL nfc-tag-scanned events
+    eventBus.subscribe('nfc-tag-scanned', (data) => {
+        debugLog('🔍 MAIN.JS: nfc-tag-scanned event received!', 'info');
+        debugLog(`   Serial: ${data.serial || 'NULL'}`, 'info');
+        debugLog(`   URL: ${data.url || 'NULL'}`, 'info');
+    });
 
     // Determine which credentials to use
     let pinataApiKey, pinataSecret;
@@ -203,6 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const nfcHandler = document.querySelector('nfc-handler');
     if (nfcHandler) {
         nfcHandler.initialize({ stateManager, eventBus });
+        debugLog('🔍 NFC Handler initialized and ready for tag scanning', 'info');
     } else {
         debugLog('NFC Handler component not found in the DOM.', 'error');
     }
@@ -213,40 +260,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (FORCE_USE_HARDCODED_KEYS) {
         debugLog(`🔧 DEVELOPMENT MODE ACTIVE - API Key: ${pinataApiKey.substring(0, 8)}...`, 'warning');
     }
+
+    // FIX: Add a helpful message for debugging NFC
+    setTimeout(() => {
+        debugLog('🔧 DEBUG TIP: If NFC scanning issues occur, try:', 'info');
+        debugLog('   1. simulateNfcScan("TEST-123") to test event flow', 'info');
+        debugLog('   2. debugState() to check current state', 'info');
+        debugLog('   3. forceAutoLoad() to trigger manual load', 'info');
+    }, 2000);
 });
 
 // For debugging purposes, expose key objects globally
 window.eventBus = eventBus;
 window.stateManager = stateManager;
-
-// Debug helper functions
-window.debugState = () => {
-    const state = stateManager.getState();
-    console.log('=== CURRENT STATE ===');
-    console.log('App Mode:', state.appMode);
-    console.log('Current Step:', state.currentStep);
-    console.log('Tag Serial:', state.tagSerial ? '✅ Present' : '❌ Missing');
-    console.log('Message ID:', state.messageId ? '✅ Present' : '❌ Missing');
-    console.log('IPFS Hash:', state.ipfsHash ? '✅ Present' : '❌ Missing');
-    console.log('Storage Service:', state.storageService ? '✅ Present' : '❌ Missing');
-    console.log('NFC Write Mode:', state.nfcWriteMode);
-    console.log('Write URL Queue:', state.writeUrlQueue ? '✅ Present' : '❌ Missing');
-    console.log('Status Message:', state.statusMessage);
-    return state;
-};
-
-window.testAutoLoad = () => {
-    console.log('=== TESTING AUTO-LOAD ===');
-    stateManager.checkAndTriggerAutoLoad();
-};
-
-window.testNfcWrite = (url = 'https://example.com/test') => {
-    console.log('Testing NFC write with URL:', url);
-    eventBus.publish('start-nfc-write', url);
-    console.log('Published start-nfc-write event. Check state with debugState()');
-};
-
-window.forceLoadMessage = () => {
-    console.log('=== FORCE LOADING MESSAGE ===');
-    eventBus.publish('load-secure-message');
-};
