@@ -1,4 +1,5 @@
 // services/state-manager.js
+
 import { eventBus } from './pubsub.js';
 import { debugLog, URLParser } from './utils.js';
 import { EncryptionService } from './encryption.js';
@@ -190,7 +191,7 @@ class StateManager {
                         tagSerial: data.serial,
                         messageId: messageId,
                         ipfsHash: ipfsHash,
-                        currentStep: 'loading'
+                        currentStep: 'waiting'  // Keep as waiting, let auto-load set to loading
                     });
                     
                     // Use the new auto-load check method
