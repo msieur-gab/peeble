@@ -171,38 +171,85 @@ export class StorageService {
      */
     async downloadMessagePackage(ipfsHash) {
         debugLog(`Downloading secure package from IPFS: ${ipfsHash}`);
-        try {
-            const url = `${this.pinataGatewayUrl}${ipfsHash}`;
-            const response = await fetch(url);
+        
+        // Try CORS-friendly IPFS gateways first
+        const gateways = [
+            `https://ipfs.io/ipfs/${ipfsHash}`, // Better CORS support
+            `https://cloudflare-ipfs.com/ipfs/${ipfsHash}`, // Good CORS support
+            `${this.pinataGatewayUrl}${ipfsHash}` // Pinata gateway (may have CORS issues)
+        ];
+        
+        let lastError = null;
+        
+        for (let i = 0; i < gateways.length; i++) {
+            const url = gateways[i];
+            debugLog(`Trying IPFS gateway ${i + 1}/${gateways.length}: ${url}`);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    mode: 'cors', // Explicitly request CORS
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    // Add cache-busting to avoid stale responses
+                    cache: 'no-cache'
+                });
 
-            if (!response.ok) {
-                debugLog(`Failed to download package from IPFS: ${response.status} ${response.statusText}`, 'error');
-                throw new Error(`Failed to download from IPFS: ${response.status} ${response.statusText}`);
+                debugLog(`Gateway ${i + 1} response: ${response.status} ${response.statusText}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const packageData = await response.json();
+                debugLog(`Package downloaded successfully from gateway ${i + 1}`, 'success');
+
+                // Convert base64 audio back to Uint8Array safely
+                const audioBase64 = packageData.encryptedAudio;
+                const binaryString = atob(audioBase64);
+                const encryptedAudio = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    encryptedAudio[i] = binaryString.charCodeAt(i);
+                }
+
+                const messagePackage = {
+                    messageId: packageData.messageId,
+                    timestamp: packageData.timestamp,
+                    encryptedAudio: encryptedAudio,
+                    encryptedTranscript: packageData.encryptedTranscript,
+                    metadata: packageData.metadata
+                };
+
+                debugLog(`Package downloaded successfully: ${messagePackage.messageId}`, 'success');
+                return messagePackage;
+                
+            } catch (error) {
+                lastError = error;
+                debugLog(`Gateway ${i + 1} failed: ${error.message}`, 'warning');
+                
+                // If this is a CORS error, be more specific
+                if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
+                    debugLog(`Gateway ${i + 1} blocked by CORS policy`, 'warning');
+                }
+                
+                // If this isn't the last gateway, continue trying
+                if (i < gateways.length - 1) {
+                    debugLog(`Trying next gateway...`);
+                    continue;
+                }
             }
+        }
 
-            const packageData = await response.json();
-
-            // Convert base64 audio back to Uint8Array safely
-            const audioBase64 = packageData.encryptedAudio;
-            const binaryString = atob(audioBase64);
-            const encryptedAudio = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                encryptedAudio[i] = binaryString.charCodeAt(i);
-            }
-
-            const messagePackage = {
-                messageId: packageData.messageId,
-                timestamp: packageData.timestamp,
-                encryptedAudio: encryptedAudio,
-                encryptedTranscript: packageData.encryptedTranscript,
-                metadata: packageData.metadata
-            };
-
-            debugLog(`Package downloaded successfully: ${messagePackage.messageId}`, 'success');
-            return messagePackage;
-        } catch (error) {
-            debugLog(`Error downloading package from Pinata: ${error.message}`, 'error');
-            throw new Error(`Failed to download package from IPFS: ${error.message}`);
+        // All gateways failed - provide helpful error message
+        debugLog(`All IPFS gateways failed. Last error: ${lastError.message}`, 'error');
+        
+        const corsError = lastError.message.includes('Failed to fetch');
+        if (corsError) {
+            throw new Error(`CORS issue preventing IPFS download. Try refreshing the page or check browser console for details.`);
+        } else {
+            throw new Error(`Failed to download package from IPFS: ${lastError.message}`);
         }
     }
 
