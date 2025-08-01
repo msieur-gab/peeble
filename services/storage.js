@@ -61,6 +61,44 @@ export class StorageService {
             throw new Error(`Failed to connect to Pinata: ${error.message}`);
         }
     }
+    
+    /**
+     * Requests a temporary, signed URL from Pinata for a specific IPFS hash.
+     * This URL can bypass CORS issues and is a more reliable way to download content.
+     * @param {string} ipfsHash - The IPFS hash (CID) of the package to download.
+     * @returns {Promise<string>} A promise that resolves to the signed URL.
+     */
+    async getSignedDownloadUrl(ipfsHash) {
+        if (!this.apiKey || !this.secret) {
+            throw new Error('Pinata API credentials are required to get a signed URL.');
+        }
+        
+        const apiUrl = 'https://api.pinata.cloud/signed-url';
+        const body = JSON.stringify({ ipfsPinHash: ipfsHash });
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'pinata_api_key': this.apiKey,
+                    'pinata_secret_api_key': this.secret
+                },
+                body: body
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Pinata signed URL failed: HTTP ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            return result.signedUrl;
+        } catch (error) {
+            debugLog(`Error getting signed URL from Pinata: ${error.message}`, 'error');
+            throw new Error(`Failed to get signed URL: ${error.message}`);
+        }
+    }
 
     /**
      * Uploads a complete encrypted Peeble package to IPFS.
@@ -165,151 +203,109 @@ export class StorageService {
 
     /**
      * Downloads a complete encrypted message package from IPFS.
-     * SECURITY: Package contains encrypted data but NO decryption key (serial).
+     * This updated version first tries to get a signed URL from Pinata to avoid CORS issues.
+     * It then falls back to public gateways if the signed URL attempt fails.
      * @param {string} ipfsHash - The IPFS hash (CID) of the package to download.
      * @returns {Promise<object>} A promise that resolves to the message package.
      */
     async downloadMessagePackage(ipfsHash) {
-        debugLog(`🔽 STARTING IPFS DOWNLOAD`, 'info');
+        debugLog(`🔽 STARTING SECURE DOWNLOAD`, 'info');
         debugLog(`📋 Package Hash: ${ipfsHash}`, 'info');
-        debugLog(`📋 Mobile Debug Mode: Full logging enabled`, 'info');
-        
-        // Try CORS-friendly IPFS gateways first
-        const gateways = [
-            `https://ipfs.io/ipfs/${ipfsHash}`, // Better CORS support
-            `https://cloudflare-ipfs.com/ipfs/${ipfsHash}`, // Good CORS support
-            `${this.pinataGatewayUrl}${ipfsHash}` // Pinata gateway (may have CORS issues)
-        ];
-        
-        debugLog(`📋 Will try ${gateways.length} IPFS gateways in order`, 'info');
         
         let lastError = null;
-        
-        for (let i = 0; i < gateways.length; i++) {
-            const url = gateways[i];
-            const gatewayName = url.includes('ipfs.io') ? 'IPFS.IO' : 
-                              url.includes('cloudflare') ? 'CLOUDFLARE' : 'PINATA';
+        let packageData;
+
+        // NEW: Step 1 - Try downloading with a signed URL first
+        try {
+            debugLog('🌐 GATEWAY 1/4: Attempting to get Pinata Signed URL...', 'info');
+            const signedUrl = await this.getSignedDownloadUrl(ipfsHash);
             
-            debugLog(`🌐 GATEWAY ${i + 1}/${gateways.length}: ${gatewayName}`, 'info');
-            debugLog(`📋 Full URL: ${url}`, 'info');
+            debugLog('🌐 GATEWAY 2/4: Downloading using Signed URL', 'info');
+            const response = await fetch(signedUrl);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            packageData = await response.json();
+            debugLog(`✅ JSON parsed from signed URL`, 'success');
+            debugLog(`🎉 IPFS DOWNLOAD COMPLETE using signed URL!`, 'success');
+
+        } catch (error) {
+            lastError = error;
+            debugLog(`❌ Signed URL download failed: ${error.message}`, 'error');
+            debugLog('🔄 Trying public gateways as fallback...', 'info');
+        }
+
+        // ORIGINAL: Step 2 - Fallback to public gateways if signed URL fails
+        if (!packageData) {
+            const gateways = [
+                `https://ipfs.io/ipfs/${ipfsHash}`,
+                `https://cloudflare-ipfs.com/ipfs/${ipfsHash}`,
+                `${this.pinataGatewayUrl}${ipfsHash}`
+            ];
             
-            try {
-                debugLog(`📤 Sending fetch request...`, 'info');
-                debugLog(`📋 Request mode: CORS`, 'info');
-                debugLog(`📋 Request headers: Accept=application/json`, 'info');
+            for (let i = 0; i < gateways.length; i++) {
+                const url = gateways[i];
+                const gatewayName = url.includes('ipfs.io') ? 'IPFS.IO' : 
+                                  url.includes('cloudflare') ? 'CLOUDFLARE' : 'PINATA';
                 
-                const fetchStart = Date.now();
-                const response = await fetch(url, {
-                    method: 'GET',
-                    mode: 'cors', // Explicitly request CORS
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    },
-                    // Add cache-busting to avoid stale responses
-                    cache: 'no-cache'
-                });
-                const fetchTime = Date.now() - fetchStart;
+                debugLog(`🌐 GATEWAY ${i + 3}/${gateways.length + 2}: ${gatewayName}`, 'info');
 
-                debugLog(`📥 Response received in ${fetchTime}ms`, 'info');
-                debugLog(`📋 Status: ${response.status} ${response.statusText}`, 'info');
-                debugLog(`📋 Content-Type: ${response.headers.get('content-type') || 'unknown'}`, 'info');
-                debugLog(`📋 CORS headers: ${response.headers.get('access-control-allow-origin') || 'none'}`, 'info');
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        mode: 'cors',
+                        headers: { 'Accept': 'application/json' },
+                        cache: 'no-cache'
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
 
-                if (!response.ok) {
-                    debugLog(`❌ HTTP Error Response`, 'error');
-                    debugLog(`📋 Status Code: ${response.status}`, 'error');
-                    debugLog(`📋 Status Text: ${response.statusText}`, 'error');
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                debugLog(`✅ HTTP Response OK - parsing JSON...`, 'success');
-                const jsonStart = Date.now();
-                const packageData = await response.json();
-                const jsonTime = Date.now() - jsonStart;
-                
-                debugLog(`✅ JSON parsed in ${jsonTime}ms`, 'success');
-                debugLog(`📋 Package contains: messageId, timestamp, encryptedAudio, encryptedTranscript, metadata`, 'info');
-                debugLog(`📋 MessageId from package: ${packageData.messageId}`, 'info');
-                debugLog(`📋 Timestamp from package: ${packageData.timestamp}`, 'info');
-                debugLog(`📋 Audio data length: ${packageData.encryptedAudio?.length || 0} chars`, 'info');
-                debugLog(`📋 Transcript data length: ${packageData.encryptedTranscript?.length || 0} chars`, 'info');
-
-                debugLog(`🔄 Converting base64 audio back to binary...`, 'info');
-                // Convert base64 audio back to Uint8Array safely
-                const audioBase64 = packageData.encryptedAudio;
-                if (!audioBase64) {
-                    throw new Error('No encrypted audio data in package');
-                }
-                
-                const binaryStart = Date.now();
-                const binaryString = atob(audioBase64);
-                const encryptedAudio = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    encryptedAudio[i] = binaryString.charCodeAt(i);
-                }
-                const binaryTime = Date.now() - binaryStart;
-                
-                debugLog(`✅ Binary conversion complete in ${binaryTime}ms`, 'success');
-                debugLog(`📋 Final audio binary size: ${encryptedAudio.length} bytes`, 'info');
-
-                const messagePackage = {
-                    messageId: packageData.messageId,
-                    timestamp: packageData.timestamp,
-                    encryptedAudio: encryptedAudio,
-                    encryptedTranscript: packageData.encryptedTranscript,
-                    metadata: packageData.metadata
-                };
-
-                debugLog(`🎉 IPFS DOWNLOAD COMPLETE!`, 'success');
-                debugLog(`✅ Gateway used: ${gatewayName}`, 'success');
-                debugLog(`✅ Package ready for decryption`, 'success');
-                return messagePackage;
-                
-            } catch (error) {
-                lastError = error;
-                debugLog(`❌ GATEWAY ${i + 1} FAILED: ${error.name}`, 'error');
-                debugLog(`📋 Error message: ${error.message}`, 'error');
-                debugLog(`📋 Error type: ${error.constructor.name}`, 'error');
-                
-                // Detailed error analysis
-                if (error.message.includes('Failed to fetch')) {
-                    debugLog(`📋 Analysis: Network/CORS issue - browser blocked request`, 'error');
-                    debugLog(`📋 Possible causes: CORS policy, network connectivity, gateway down`, 'error');
-                } else if (error.message.includes('JSON')) {
-                    debugLog(`📋 Analysis: JSON parsing failed - invalid response format`, 'error');
-                } else if (error.message.includes('HTTP')) {
-                    debugLog(`📋 Analysis: Server returned error status code`, 'error');
-                } else {
-                    debugLog(`📋 Analysis: Unknown error type`, 'error');
-                }
-                
-                // If this isn't the last gateway, continue trying
-                if (i < gateways.length - 1) {
-                    debugLog(`🔄 Trying next gateway...`, 'info');
-                    debugLog(`⏳ Brief delay before next attempt...`, 'info');
-                    // Small delay between attempts
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    continue;
-                } else {
-                    debugLog(`❌ All gateways exhausted`, 'error');
+                    packageData = await response.json();
+                    debugLog(`✅ JSON parsed from ${gatewayName}`, 'success');
+                    debugLog(`🎉 IPFS DOWNLOAD COMPLETE using public gateway!`, 'success');
+                    break; // Exit the loop if successful
+                } catch (error) {
+                    lastError = error;
+                    debugLog(`❌ GATEWAY ${i + 3} FAILED: ${error.message}`, 'error');
                 }
             }
         }
 
-        // All gateways failed - provide comprehensive error summary
-        debugLog(`💥 IPFS DOWNLOAD COMPLETELY FAILED`, 'error');
-        debugLog(`📋 Tried ${gateways.length} different IPFS gateways`, 'error');
-        debugLog(`📋 Final error: ${lastError.message}`, 'error');
+        if (!packageData) {
+            throw new Error(`All download attempts failed: ${lastError?.message || 'Unknown error'}`);
+        }
+
+        // FINAL STEP: Process the downloaded package
+        debugLog(`🔄 Converting base64 audio back to binary...`, 'info');
+        const audioBase64 = packageData.encryptedAudio;
+        if (!audioBase64) {
+            throw new Error('No encrypted audio data in package');
+        }
         
-        const corsError = lastError.message.includes('Failed to fetch');
-        if (corsError) {
-            debugLog(`📋 Root cause: CORS (Cross-Origin Resource Sharing) blocking`, 'error');
-            debugLog(`📋 Solution needed: CORS proxy or alternative download method`, 'error');
-            throw new Error(`CORS policy blocked IPFS download from all gateways`);
-        } else {
-            debugLog(`📋 Root cause: ${lastError.constructor.name}`, 'error');
-            throw new Error(`All IPFS gateways failed: ${lastError.message}`);
+        try {
+            const binaryString = atob(audioBase64);
+            const encryptedAudio = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                encryptedAudio[i] = binaryString.charCodeAt(i);
+            }
+            
+            const messagePackage = {
+                messageId: packageData.messageId,
+                timestamp: packageData.timestamp,
+                encryptedAudio: encryptedAudio,
+                encryptedTranscript: packageData.encryptedTranscript,
+                metadata: packageData.metadata
+            };
+
+            return messagePackage;
+
+        } catch (error) {
+            debugLog(`❌ Error converting base64 audio: ${error.message}`, 'error');
+            throw new Error(`Failed to process downloaded audio: ${error.message}`);
         }
     }
 
