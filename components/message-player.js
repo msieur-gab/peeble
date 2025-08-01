@@ -35,6 +35,7 @@ class MessagePlayer extends HTMLElement {
     setStorageService(service) {
         this.storageService = service;
         debugLog('🔒 SECURITY: StorageService set in MessagePlayer.');
+        // FIX: Explicitly call loadSecureMessage now that the service is available
         this.loadSecureMessage();
     }
 
