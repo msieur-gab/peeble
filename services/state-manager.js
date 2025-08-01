@@ -1,5 +1,4 @@
 // services/state-manager.js
-
 import { eventBus } from './pubsub.js';
 import { debugLog, URLParser } from './utils.js';
 import { EncryptionService } from './encryption.js';
@@ -130,13 +129,32 @@ class StateManager {
             // Clear after use
             sessionStorage.removeItem('peeble-physical-key');
             
-            // Auto-trigger loading if we have all parameters
-            if (this._state.messageId && this._state.ipfsHash && this._state.storageService) {
-                eventBus.publish('load-secure-message');
-            }
+            // Check if we can now auto-load
+            this.checkAndTriggerAutoLoad();
         } catch (error) {
             debugLog(`🔒 SECURITY: Error restoring physical key: ${error.message}`, 'error');
             sessionStorage.removeItem('peeble-physical-key');
+        }
+    }
+
+    // New method to check if all conditions are met for auto-loading
+    checkAndTriggerAutoLoad() {
+        const { appMode, tagSerial, messageId, ipfsHash, storageService, currentStep } = this._state;
+        
+        debugLog(`🔒 AUTO-LOAD CHECK: Mode=${appMode}, Serial=${!!tagSerial}, MessageId=${!!messageId}, Hash=${!!ipfsHash}, Storage=${!!storageService}, Step=${currentStep}`);
+        
+        if (appMode === 'READER' && 
+            tagSerial && 
+            messageId && 
+            ipfsHash && 
+            storageService && 
+            currentStep !== 'loading' && 
+            currentStep !== 'playing') {
+            
+            debugLog('🔒 AUTO-LOAD: All conditions met - triggering automatic load!', 'success');
+            eventBus.publish('load-secure-message');
+        } else {
+            debugLog('🔒 AUTO-LOAD: Not ready yet, waiting for missing components...');
         }
     }
 
