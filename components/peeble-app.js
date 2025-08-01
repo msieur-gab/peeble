@@ -37,7 +37,6 @@ class PeebleApp extends HTMLElement {
 
         this.setupStateSubscription();
         this.initializeMode();
-        this.handleInitialLoad();
         this.handleStateChange(this.stateManager.getState());
     }
 
@@ -74,6 +73,26 @@ class PeebleApp extends HTMLElement {
                     font-size: 0.9em;
                     margin: 0;
                 }
+                .manual-load-btn {
+                    background: #17a2b8;
+                    color: white;
+                    border: none;
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    font-size: 1em;
+                    cursor: pointer;
+                    margin: 10px;
+                    transition: all 0.3s ease;
+                }
+                .manual-load-btn:hover {
+                    background: #138496;
+                    transform: translateY(-2px);
+                }
+                .manual-load-btn:disabled {
+                    background: #6c757d;
+                    cursor: not-allowed;
+                    transform: none;
+                }
             </style>
             <div class="app-content-wrapper">
                 <div class="status-container">
@@ -97,8 +116,11 @@ class PeebleApp extends HTMLElement {
         
         if (params.messageId && params.ipfsHash) {
             debugLog('🔒 SECURITY: Secure URL parameters found. Switching to Reading Mode.', 'info');
-            // We now wait for the event instead of relying on a page reload
-            this.stateManager.setState({ appMode: 'READER', ipfsHash: params.ipfsHash, messageId: params.messageId });
+            this.stateManager.setState({ 
+                appMode: 'READER', 
+                ipfsHash: params.ipfsHash, 
+                messageId: params.messageId 
+            });
         } else {
             debugLog('🔒 SECURITY: No URL parameters found. Switching to Creation Mode.', 'info');
             this.stateManager.setState({ appMode: 'CREATOR', tagSerial: null });
@@ -125,7 +147,8 @@ class PeebleApp extends HTMLElement {
         this.eventBus.subscribe('message-nfc-scanned', (data) => {
             debugLog(`🔒 SECURITY: Message NFC tag scanned - serial captured: ${data.serial}`, 'success');
             this.physicalTagSerial = data.serial;
-            // The URL parsing will handle the rest
+            // Update state with the physical key
+            this.stateManager.setState({ tagSerial: data.serial });
         });
 
         this.eventBus.subscribe('close-player', () => {
@@ -166,6 +189,9 @@ class PeebleApp extends HTMLElement {
 
             this.physicalTagSerial = keyData.serial;
             debugLog(`🔒 SECURITY: Physical key restored from temporary storage: ${keyData.serial}`, 'success');
+
+            // FIX: Update the state with the restored physical key
+            this.stateManager.setState({ tagSerial: keyData.serial });
 
             // Clear the key immediately after use for security
             sessionStorage.removeItem('peeble-physical-key');
@@ -224,11 +250,15 @@ class PeebleApp extends HTMLElement {
 
         const params = URLParser.getParams();
         
-        // SECURITY: Check for secure URL format (messageId + ipfsHash, NO serial)
+        // SECURITY: Check for secure URL format (messageId + ipfsHash, no serial)
         if (params.messageId && params.ipfsHash) {
             debugLog('🔒 SECURITY: Secure URL parameters found. Switching to Reading Mode.', 'info');
             debugLog('🔒 SECURITY: Waiting for physical NFC scan to provide decryption key...', 'info');
-            this.stateManager.setState({ appMode: 'READER' });
+            this.stateManager.setState({ 
+                appMode: 'READER',
+                messageId: params.messageId,
+                ipfsHash: params.ipfsHash
+            });
         } else {
             debugLog('🔒 SECURITY: No URL parameters found. Switching to Creation Mode.', 'info');
             this.stateManager.setState({ appMode: 'CREATOR', tagSerial: null });
@@ -247,9 +277,16 @@ class PeebleApp extends HTMLElement {
     renderSecureReaderMode() {
         debugLog('🔒 SECURITY: Rendering Secure Reader Mode.');
         const params = URLParser.getParams();
-        const { tagSerial, messageId, ipfsHash } = this.stateManager.getState();
+        const state = this.stateManager.getState();
+        const { tagSerial, messageId, ipfsHash } = state;
         
-        if (!tagSerial || !messageId || !ipfsHash) {
+        // Use URL params as backup if not in state
+        const finalMessageId = messageId || params.messageId;
+        const finalIpfsHash = ipfsHash || params.ipfsHash;
+        
+        debugLog(`🔒 SECURITY: Reader mode - Serial: ${tagSerial ? 'AVAILABLE' : 'MISSING'}, MessageId: ${finalMessageId}, Hash: ${finalIpfsHash}`);
+        
+        if (!tagSerial || !finalMessageId || !finalIpfsHash) {
             // Show waiting state until physical tag is scanned
             this.appContent.innerHTML = `
                 <div class="security-warning">
@@ -266,26 +303,56 @@ class PeebleApp extends HTMLElement {
                     </p>
                     <div style="margin-top: 30px; padding: 15px; background: #f5f5f5; border-radius: 10px;">
                         <p style="font-size: 0.9em; color: #333;">
-                            <strong>Message ID:</strong> ${params.messageId}<br>
-                            <strong>IPFS Hash:</strong> ${params.ipfsHash.substring(0, 20)}...
+                            <strong>Message ID:</strong> ${finalMessageId || 'Loading...'}<br>
+                            <strong>IPFS Hash:</strong> ${finalIpfsHash ? finalIpfsHash.substring(0, 20) + '...' : 'Loading...'}
                         </p>
                     </div>
+                    ${tagSerial ? `
+                        <div style="margin-top: 20px;">
+                            <button class="manual-load-btn" onclick="this.getRootNode().host.manualLoadMessage()">
+                                🔓 Manual Load Message (Testing)
+                            </button>
+                            <p style="font-size: 0.8em; color: #666; margin-top: 10px;">
+                                Physical key detected but message not auto-loading. Click to force load.
+                            </p>
+                        </div>
+                    ` : ''}
                 </div>
             `;
-            this.showStatus('🔒 Waiting for physical Peeble scan to decrypt message...', 'warning', 0);
+            this.showStatus(tagSerial ? 
+                '🔒 Physical key detected. Setting up decryption...' : 
+                '🔒 Waiting for physical Peeble scan to decrypt message...', 
+                'warning', 0);
             return;
         }
 
         // Render player with physical key
-        debugLog(`🔒 SECURITY: Rendering player with restored physical key: ${tagSerial}`);
+        debugLog(`🔒 SECURITY: Rendering player with physical key: ${tagSerial}`);
         this.appContent.innerHTML = `
             <message-player 
                 serial="${tagSerial}" 
-                message-id="${messageId}" 
-                ipfs-hash="${ipfsHash}">
+                message-id="${finalMessageId}" 
+                ipfs-hash="${finalIpfsHash}">
             </message-player>
         `;
         this.showStatus('🔒 Physical key detected. Loading secure message...', 'success');
+    }
+    
+    // Manual load method for testing
+    manualLoadMessage() {
+        const state = this.stateManager.getState();
+        const params = URLParser.getParams();
+        const { tagSerial, messageId, ipfsHash } = state;
+        
+        const finalMessageId = messageId || params.messageId;
+        const finalIpfsHash = ipfsHash || params.ipfsHash;
+        
+        if (tagSerial && finalMessageId && finalIpfsHash) {
+            debugLog('🔒 SECURITY: Manual load triggered - rendering player');
+            this.renderSecureReaderMode();
+        } else {
+            debugLog('🔒 SECURITY: Manual load failed - missing required parameters', 'error');
+        }
     }
     
     passServicesToChild(apiKey, secret) {
