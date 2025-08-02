@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peeble Secure Reader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300">
+        <div class="flex items-center space-x-4 mb-6">
+            <div class="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 21l-2-2m-1-1v-4m1-4h2m-2-4l2-2m-1 22a20 20 0 0 1 0-14m0 14h14a20 20 0 0 1 0-14H5zm14-14a20 20 0 0 1 0 14M5 5h14"/>
+                    <path d="M12 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">Peeble Secure Reader</h1>
+                <p class="text-gray-500 mt-1">Ready for NFC Scan</p>
+            </div>
+        </div>
+
+        <!-- NFC Status and Instructions -->
+        <div id="nfc-status-section" class="bg-blue-50 border border-blue-200 text-blue-800 p-6 rounded-lg mb-6 shadow-inner">
+            <h2 class="text-xl font-semibold mb-2">Instructions</h2>
+            <p id="nfc-status-text" class="mb-4">
+                <span class="font-medium text-gray-700">Checking NFC support...</span>
+            </p>
+            <p>1. Ensure your device's NFC is turned on.</p>
+            <p>2. Tap the Peeble stone to the back of your phone to scan.</p>
+            <p>3. The message details will appear below.</p>
+        </div>
+
+        <!-- Result Display -->
+        <div id="result-display" class="hidden bg-gray-50 p-6 rounded-lg border border-gray-200 mt-8">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">Scan Results</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Tag Serial Number</label>
+                    <pre id="serial-number" class="mt-1 p-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 break-all"></pre>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Message ID</label>
+                    <pre id="message-id" class="mt-1 p-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 break-all"></pre>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">IPFS Hash</label>
+                    <pre id="ipfs-hash" class="mt-1 p-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 break-all"></pre>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Full NFC URL</label>
+                    <pre id="nfc-url" class="mt-1 p-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 break-all"></pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Log Console -->
+        <div class="mt-8 bg-gray-900 text-white rounded-lg p-4 shadow-lg overflow-y-auto max-h-60">
+            <h3 class="font-mono text-xs text-green-400 mb-2">>> LIVE LOG <<</h3>
+            <div id="log-container" class="font-mono text-xs space-y-1">
+                <!-- Log messages will appear here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Use a unique ID for the console to avoid conflicts
+        const logContainer = document.getElementById('log-container');
+
+        // Log function to handle messages with different colors
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = 'flex space-x-2';
+            
+            let colorClass = 'text-gray-400';
+            let emoji = '📋';
+            if (type === 'success') {
+                colorClass = 'text-green-400';
+                emoji = '✅';
+            } else if (type === 'error') {
+                colorClass = 'text-red-400';
+                emoji = '❌';
+            } else if (type === 'warning') {
+                colorClass = 'text-yellow-400';
+                emoji = '⚠️';
+            }
+
+            logItem.innerHTML = `<span class="text-gray-600">${timestamp}</span><span class="${colorClass}">${emoji} ${message}</span>`;
+            logContainer.appendChild(logItem);
+            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+        }
+
+        // Check for Web NFC support and start scanning
+        document.addEventListener('DOMContentLoaded', () => {
+            const nfcStatusText = document.getElementById('nfc-status-text');
+            
+            if ('NDEFReader' in window) {
+                log('Web NFC API is supported.', 'success');
+                nfcStatusText.innerHTML = '<span class="text-green-600 font-bold">NFC Ready!</span> Tap your Peeble to the back of your phone.';
+                startNfcScanning();
+            } else {
+                log('Web NFC API is not supported in this browser.', 'error');
+                nfcStatusText.innerHTML = '<span class="text-red-600 font-bold">NFC Not Supported.</span> This feature requires a compatible browser (e.g., Chrome on Android) and an NFC-enabled device.';
+            }
+        });
+
+        // Function to start the NFC scan process
+        async function startNfcScanning() {
+            try {
+                const reader = new NDEFReader();
+                log('Starting NDEFReader scan...', 'info');
+
+                reader.onreading = (event) => {
+                    log('NFC Tag detected!', 'success');
+                    
+                    // The core logic to extract serial and URL from the event
+                    let extractedSerial = event.serialNumber;
+                    let urlRecord = null;
+                    
+                    log(`Raw Event Serial: ${extractedSerial ? 'PRESENT' : 'UNDEFINED'}`, 'info');
+                    
+                    if (event.message && event.message.records) {
+                        for (const record of event.message.records) {
+                            if (record.recordType === 'url') {
+                                try {
+                                    const decoder = new TextDecoder();
+                                    urlRecord = decoder.decode(record.data);
+                                    log(`URL record found: ${urlRecord}`, 'success');
+                                    break;
+                                } catch (e) {
+                                    log(`Failed to decode URL record: ${e.message}`, 'error');
+                                }
+                            }
+                        }
+                    } else {
+                        log('No NDEF message or records found.', 'warning');
+                    }
+                    
+                    // Check if we found a URL and a serial number
+                    if (extractedSerial && urlRecord) {
+                        displayResults(extractedSerial, urlRecord);
+                    } else {
+                        log('Could not extract both serial number and URL from the tag.', 'error');
+                        // Display what we did get for debugging
+                        if (extractedSerial) {
+                             displayResults(extractedSerial, 'URL not found');
+                        } else {
+                            log('No serial number found in event. This may be a browser limitation or tag type issue.', 'error');
+                            displayResults('Serial not found', urlRecord);
+                        }
+                    }
+                };
+
+                reader.onreadingerror = (error) => {
+                    log(`NFC reading error: ${error.message}`, 'error');
+                };
+
+                await reader.scan();
+                log('NFC scan activated. Ready to listen for tags.', 'success');
+            } catch (error) {
+                log(`Failed to start NFC scan: ${error.message}`, 'error');
+                if (error.name === 'NotAllowedError') {
+                    log('NFC access was denied. Please allow it in your browser settings.', 'warning');
+                }
+            }
+        }
+
+        // Function to parse the URL and display the results
+        function displayResults(serial, fullUrl) {
+            const resultDisplay = document.getElementById('result-display');
+            resultDisplay.classList.remove('hidden');
+
+            document.getElementById('serial-number').textContent = serial;
+            document.getElementById('nfc-url').textContent = fullUrl;
+
+            try {
+                const urlObj = new URL(fullUrl);
+                const params = new URLSearchParams(urlObj.hash.substring(1));
+                
+                document.getElementById('message-id').textContent = params.get('messageId') || 'Not found';
+                document.getElementById('ipfs-hash').textContent = params.get('ipfsHash') || 'Not found';
+
+                log('Successfully extracted message details!', 'success');
+            } catch (e) {
+                log(`Failed to parse URL parameters: ${e.message}`, 'error');
+                document.getElementById('message-id').textContent = 'Error parsing URL';
+                document.getElementById('ipfs-hash').textContent = 'Error parsing URL';
+            }
+        }
+    </script>
+</body>
+</html>
