@@ -71,6 +71,9 @@
                 <div class="text-center space-y-4">
                     <h2 class="text-2xl font-bold text-gray-800">Record a new message</h2>
                     <p class="text-gray-500">Add a title and then start recording.</p>
+                    <div id="writer-serial-display" class="bg-indigo-100 text-indigo-800 p-2 rounded-lg text-sm mb-4">
+                        Current Peeble Serial: <span id="writer-serial-value" class="font-bold"></span>
+                    </div>
                     <input type="text" id="message-title-input" placeholder="Message Title (e.g., 'To my dearest child')" class="w-full p-3 border-2 border-gray-300 rounded-lg text-lg focus:outline-none focus:border-indigo-500">
                     <button id="record-btn" class="w-24 h-24 rounded-full bg-red-500 text-white text-3xl flex items-center justify-center mx-auto shadow-xl transition-all duration-200 hover:scale-110">
                         <svg id="record-icon" xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -390,6 +393,8 @@
         const scanSerialBtn = document.getElementById('scan-serial-btn');
 
         const recordingArea = document.getElementById('recording-area');
+        const writerSerialDisplay = document.getElementById('writer-serial-display');
+        const writerSerialValue = document.getElementById('writer-serial-value');
         const recordBtn = document.getElementById('record-btn');
         const recordingTimer = document.getElementById('recording-timer');
         const messageTitleInput = document.getElementById('message-title-input');
@@ -482,6 +487,8 @@
                         log(`Peeble serial captured: ${serial}`, 'success');
                         scanSerialForm.classList.add('hidden');
                         recordingArea.classList.remove('hidden');
+                        writerSerialDisplay.classList.remove('hidden');
+                        writerSerialValue.textContent = serial;
                         renderPlaylist(); // Render the playlist after we have the serial
                         nfcService.stopReader();
                     } else {
@@ -560,6 +567,8 @@
             const encService = new EncryptionService();
             for (const message of allMessages) {
                 try {
+                    // SECURITY: The tagSerial is the key. The timestamp is a unique salt.
+                    // This ties the encrypted message to the specific physical tag.
                     const timestamp = Date.now();
                     const encryptionKey = await encService.deriveEncryptionKey(tagSerial, timestamp);
                     const audioBuffer = await message.audioBlob.arrayBuffer();
@@ -567,7 +576,7 @@
                     
                     const messagePackage = {
                         messageId: `PBL-${message.id}`,
-                        timestamp: timestamp,
+                        timestamp: timestamp, // CRITICAL for decryption
                         encryptedAudio: encService.binToBase64(encryptedAudio),
                         metadata: { title: message.title }
                     };
@@ -682,6 +691,10 @@
                 for (const item of playlistManifest.messages) {
                     log(`Processing message: ${item.messageId}`, 'info');
                     const encryptedPackage = await storage.downloadMessagePackage(item.ipfsHash);
+                    
+                    // SECURITY: The key is derived from the serial number found on the tag,
+                    // and the timestamp found within the encrypted package. This ensures 
+                    // only the original tag can decrypt the message.
                     const encryptedAudioBin = encService.base64ToBin(encryptedPackage.encryptedAudio);
                     const decryptionKey = await encService.deriveEncryptionKey(serial, encryptedPackage.timestamp);
                     const decryptedAudio = await encService.decryptFromBinary(encryptedAudioBin, decryptionKey);
@@ -741,6 +754,8 @@
                     apiSetupForm.classList.add('hidden');
                     if (tagSerial) {
                         recordingArea.classList.remove('hidden');
+                        writerSerialDisplay.classList.remove('hidden');
+                        writerSerialValue.textContent = tagSerial;
                     } else {
                         scanSerialForm.classList.remove('hidden');
                     }
