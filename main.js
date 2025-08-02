@@ -1,4 +1,4 @@
-// main.js - Complete version with PWA integration
+// main.js - Complete version with simple PWA solution
 
 import { debugLog } from './services/utils.js';
 import { StorageService } from './services/storage.js';
@@ -122,376 +122,64 @@ window.forceAutoLoad = () => {
 };
 
 // =======================================================
-// === PWA-SPECIFIC FUNCTIONS ===
+// === SIMPLE PWA NAVIGATION SOLUTION ===
 // =======================================================
 
 /**
- * PWA-specific initialization that should be called after the main app initialization
+ * ✅ SIMPLE: Setup minimal PWA navigation handling
  */
-function initPWAFeatures() {
-    debugLog('🔧 PWA: Initializing PWA-specific features...');
-
-    // Enhanced service worker messaging
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        setupServiceWorkerMessaging();
-    }
-
-    // Enhanced NFC handling for PWA
-    setupPWANfcHandling();
-
-    // PWA-specific state persistence
-    setupPWAStatePersistence();
-
-    // Performance monitoring
-    setupPWAPerformanceMonitoring();
-
-    debugLog('✅ PWA: PWA features initialized successfully', 'success');
-}
-
-/**
- * Enhanced service worker messaging for better URL handling
- */
-function setupServiceWorkerMessaging() {
-    navigator.serviceWorker.addEventListener('message', (event) => {
-        const { data } = event;
-        
-        switch (data.type) {
-            case 'PEEBLE_URL_NAVIGATION':
-                handlePeebleUrlNavigation(data);
-                break;
-            case 'NFC_SERIAL_CAPTURED':
-                handleNfcSerialFromSW(data);
-                break;
-            case 'CACHE_UPDATE':
-                handleCacheUpdate(data);
-                break;
-        }
-    });
-
-    // Send app ready signal to service worker
-    if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-            type: 'APP_READY',
-            timestamp: Date.now(),
-            url: window.location.href
+function setupSimplePWANavigation() {
+    debugLog('🔧 PWA: Setting up simple PWA navigation...', 'info');
+    
+    // Listen for messages from service worker
+    if (navigator.serviceWorker) {
+        navigator.serviceWorker.addEventListener('message', event => {
+            if (event.data.type === 'NAVIGATE_TO_MESSAGE') {
+                debugLog('🔒 PWA: Received navigation message from service worker', 'success');
+                debugLog(`   MessageId: ${event.data.messageId}`, 'info');
+                debugLog(`   IpfsHash: ${event.data.ipfsHash}`, 'info');
+                
+                // Update URL without triggering navigation
+                const newUrl = `${window.location.origin}${window.location.pathname}#messageId=${event.data.messageId}&ipfsHash=${event.data.ipfsHash}`;
+                history.replaceState({}, '', newUrl);
+                
+                // Update state manager to handle the new message
+                if (window.stateManager) {
+                    stateManager.setState({
+                        messageId: event.data.messageId,
+                        ipfsHash: event.data.ipfsHash,
+                        appMode: 'READER',
+                        currentStep: 'waiting',
+                        statusMessage: '🔒 Loading message via PWA routing...'
+                    });
+                    stateManager.initializeFromUrl();
+                    
+                    debugLog('✅ PWA: Navigation completed successfully', 'success');
+                } else {
+                    debugLog('❌ PWA: State manager not available', 'error');
+                }
+            }
         });
     }
-}
-
-/**
- * Handle Peeble URL navigation from service worker
- */
-function handlePeebleUrlNavigation(data) {
-    debugLog(`🔒 PWA: Processing URL navigation from Service Worker`, 'info');
-    debugLog(`   Message ID: ${data.messageId}`, 'info');
-    debugLog(`   IPFS Hash: ${data.ipfsHash}`, 'info');
     
-    try {
-        // Update browser URL without reloading
-        const newUrl = `${window.location.origin}${window.location.pathname}#messageId=${data.messageId}&ipfsHash=${data.ipfsHash}`;
-        
-        // Only update if different from current URL
-        if (window.location.href !== data.fullUrl) {
-            history.pushState({ 
-                messageId: data.messageId, 
-                ipfsHash: data.ipfsHash,
-                timestamp: data.timestamp 
-            }, '', newUrl);
-            
-            debugLog(`🔒 PWA: URL updated to: ${newUrl}`, 'success');
-        }
-
-        // Trigger state manager to reinitialize with new URL
-        if (window.stateManager) {
-            // Force reinitialize from URL
+    // Simple hash change handler for direct URL access
+    window.addEventListener('hashchange', () => {
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        if (params.has('messageId') && params.has('ipfsHash') && window.stateManager) {
+            debugLog('🔄 PWA: Hash change detected - processing Peeble message', 'info');
             stateManager.setState({
-                messageId: data.messageId,
-                ipfsHash: data.ipfsHash,
+                messageId: params.get('messageId'),
+                ipfsHash: params.get('ipfsHash'),
                 appMode: 'READER',
                 currentStep: 'waiting',
-                statusMessage: '🔒 Message received via PWA routing...'
+                statusMessage: '🔒 Processing hash change navigation...'
             });
-            
-            // Reinitialize from URL to pick up the new parameters
             stateManager.initializeFromUrl();
-            
-            debugLog('🔒 PWA: State manager reinitialized with new message parameters', 'success');
-        } else {
-            debugLog('❌ PWA: State manager not available for URL navigation', 'error');
-        }
-
-        // Show user feedback
-        if (window.debugLog) {
-            debugLog(`🎉 PWA: Navigated to Peeble message ${data.messageId}`, 'success');
-        }
-
-    } catch (error) {
-        debugLog(`❌ PWA: Error handling URL navigation: ${error.message}`, 'error');
-    }
-}
-
-/**
- * Handle NFC serial captured from service worker
- */
-function handleNfcSerialFromSW(data) {
-    debugLog(`🔒 PWA: NFC serial received from Service Worker: ${data.serial}`, 'success');
-    
-    if (window.stateManager && data.serial) {
-        stateManager.setState({
-            tagSerial: data.serial,
-            physicalKeyTimestamp: data.timestamp
-        });
-        
-        debugLog('🔒 PWA: NFC serial set in state manager via Service Worker', 'success');
-    }
-}
-
-/**
- * Handle cache updates from service worker
- */
-function handleCacheUpdate(data) {
-    debugLog(`🔧 PWA: Cache update received: ${data.message}`, 'info');
-    
-    if (data.requiresReload) {
-        // Show update available notification
-        if (window.pwaUtils) {
-            window.pwaUtils.updateStatus('App update available - Refresh to apply', 'warning');
-        }
-    }
-}
-
-/**
- * PWA-specific NFC handling enhancements
- */
-function setupPWANfcHandling() {
-    // Enhanced NFC event handling for PWA context
-    eventBus.subscribe('nfc-tag-scanned', (data) => {
-        debugLog('🔒 PWA: Enhanced NFC tag processing...', 'info');
-        
-        // Store NFC data in session for PWA navigation scenarios
-        if (data.serial) {
-            try {
-                const nfcData = {
-                    serial: data.serial,
-                    timestamp: Date.now(),
-                    url: data.url,
-                    source: 'pwa-nfc-handler'
-                };
-                
-                sessionStorage.setItem('pwa-nfc-latest', JSON.stringify(nfcData));
-                debugLog(`🔒 PWA: NFC data cached for PWA navigation scenarios`, 'success');
-                
-                // Send to service worker for caching
-                if (navigator.serviceWorker.controller) {
-                    navigator.serviceWorker.controller.postMessage({
-                        type: 'CACHE_NFC_DATA',
-                        data: nfcData
-                    });
-                }
-                
-            } catch (error) {
-                debugLog(`⚠️ PWA: Error caching NFC data: ${error.message}`, 'warning');
-            }
-        }
-        
-        // Enhanced serial detection for PWA
-        if (!data.serial || data.serial.startsWith('TEMP-')) {
-            debugLog('🔍 PWA: Attempting to recover NFC serial from PWA session...', 'warning');
-            
-            try {
-                const cachedNfc = sessionStorage.getItem('pwa-nfc-latest');
-                if (cachedNfc) {
-                    const nfcData = JSON.parse(cachedNfc);
-                    const age = Date.now() - nfcData.timestamp;
-                    
-                    if (age < 10000) { // 10 seconds
-                        debugLog(`🔒 PWA: Recovered NFC serial from cache: ${nfcData.serial}`, 'success');
-                        data.serial = nfcData.serial;
-                        
-                        // Update the display immediately
-                        const serialDisplay = document.getElementById('nfc-serial-display');
-                        const serialNumberSpan = document.getElementById('serialNumber');
-                        if (serialDisplay && serialNumberSpan) {
-                            serialNumberSpan.textContent = nfcData.serial;
-                            serialDisplay.style.display = 'block';
-                        }
-                    }
-                }
-            } catch (error) {
-                debugLog(`⚠️ PWA: Error recovering NFC serial: ${error.message}`, 'warning');
-            }
         }
     });
-
-    // PWA-specific NFC retry logic
-    let nfcRetryCount = 0;
-    const maxNfcRetries = 3;
     
-    eventBus.subscribe('nfc-serial-missing', () => {
-        if (nfcRetryCount < maxNfcRetries) {
-            nfcRetryCount++;
-            debugLog(`🔄 PWA: NFC serial missing, retry ${nfcRetryCount}/${maxNfcRetries}`, 'warning');
-            
-            setTimeout(() => {
-                // Try to recover from session storage
-                const cachedNfc = sessionStorage.getItem('pwa-nfc-latest');
-                if (cachedNfc) {
-                    try {
-                        const nfcData = JSON.parse(cachedNfc);
-                        eventBus.publish('nfc-tag-scanned', {
-                            url: nfcData.url,
-                            serial: nfcData.serial
-                        });
-                        debugLog('🔒 PWA: NFC retry successful using cached data', 'success');
-                    } catch (error) {
-                        debugLog(`❌ PWA: NFC retry failed: ${error.message}`, 'error');
-                    }
-                }
-            }, 1000 * nfcRetryCount); // Progressive delay
-        }
-    });
+    debugLog('✅ PWA: Simple navigation setup complete', 'success');
 }
-
-/**
- * PWA state persistence for better reliability
- */
-function setupPWAStatePersistence() {
-    // Save critical state to sessionStorage for PWA navigation scenarios
-    eventBus.subscribe('state-change', (state) => {
-        // Only persist critical data that helps with PWA navigation
-        const persistentState = {
-            appMode: state.appMode,
-            messageId: state.messageId,
-            ipfsHash: state.ipfsHash,
-            tagSerial: state.tagSerial,
-            timestamp: Date.now()
-        };
-        
-        try {
-            sessionStorage.setItem('pwa-app-state', JSON.stringify(persistentState));
-        } catch (error) {
-            debugLog(`⚠️ PWA: Error persisting state: ${error.message}`, 'warning');
-        }
-    });
-
-    // Restore state on app initialization if needed
-    try {
-        const persistedState = sessionStorage.getItem('pwa-app-state');
-        if (persistedState) {
-            const state = JSON.parse(persistedState);
-            const age = Date.now() - state.timestamp;
-            
-            if (age < 30000) { // 30 seconds
-                debugLog('🔄 PWA: Restoring persisted state from previous session', 'info');
-                
-                if (stateManager && state.tagSerial) {
-                    stateManager.setState({
-                        tagSerial: state.tagSerial
-                    });
-                    debugLog(`🔒 PWA: Restored tag serial: ${state.tagSerial}`, 'success');
-                }
-            } else {
-                // Clean up old state
-                sessionStorage.removeItem('pwa-app-state');
-            }
-        }
-    } catch (error) {
-        debugLog(`⚠️ PWA: Error restoring persisted state: ${error.message}`, 'warning');
-        sessionStorage.removeItem('pwa-app-state');
-    }
-}
-
-/**
- * PWA performance monitoring
- */
-function setupPWAPerformanceMonitoring() {
-    // Monitor critical PWA metrics
-    if ('performance' in window) {
-        // Monitor navigation timing
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const perfData = performance.getEntriesByType('navigation')[0];
-                if (perfData) {
-                    debugLog(`📊 PWA Performance: Load time ${Math.round(perfData.loadEventEnd - perfData.fetchStart)}ms`, 'info');
-                }
-            }, 0);
-        });
-
-        // Monitor NFC operation timing
-        let nfcStartTime;
-        eventBus.subscribe('nfc-scan-start', () => {
-            nfcStartTime = performance.now();
-        });
-        
-        eventBus.subscribe('nfc-tag-scanned', () => {
-            if (nfcStartTime) {
-                const duration = performance.now() - nfcStartTime;
-                debugLog(`📊 PWA Performance: NFC scan took ${Math.round(duration)}ms`, 'info');
-            }
-        });
-    }
-
-    // Monitor memory usage if available
-    if ('memory' in performance) {
-        setInterval(() => {
-            const memory = performance.memory;
-            const usedMB = Math.round(memory.usedJSHeapSize / 1024 / 1024);
-            const limitMB = Math.round(memory.jsHeapSizeLimit / 1024 / 1024);
-            
-            if (usedMB > limitMB * 0.8) {
-                debugLog(`⚠️ PWA Performance: High memory usage ${usedMB}MB/${limitMB}MB`, 'warning');
-            }
-        }, 30000); // Check every 30 seconds
-    }
-}
-
-/**
- * PWA-specific debugging utilities
- */
-window.pwaDiagnostics = {
-    checkNfcState: () => {
-        console.log('=== PWA NFC DIAGNOSTICS ===');
-        console.log('Service Worker:', navigator.serviceWorker.controller ? '✅ Active' : '❌ Inactive');
-        console.log('NFC API:', 'NDEFReader' in window ? '✅ Available' : '❌ Not Available');
-        
-        const cachedNfc = sessionStorage.getItem('pwa-nfc-latest');
-        console.log('Cached NFC:', cachedNfc ? `✅ ${JSON.parse(cachedNfc).serial}` : '❌ None');
-        
-        const persistedState = sessionStorage.getItem('pwa-app-state');
-        console.log('Persisted State:', persistedState ? '✅ Available' : '❌ None');
-        
-        const currentState = stateManager.getState();
-        console.log('Current Serial:', currentState.tagSerial ? `✅ ${currentState.tagSerial}` : '❌ Missing');
-        
-        return {
-            serviceWorker: !!navigator.serviceWorker.controller,
-            nfcApi: 'NDEFReader' in window,
-            cachedNfc: !!cachedNfc,
-            persistedState: !!persistedState,
-            currentSerial: !!currentState.tagSerial
-        };
-    },
-    
-    clearPWAData: () => {
-        sessionStorage.removeItem('pwa-nfc-latest');
-        sessionStorage.removeItem('pwa-app-state');
-        sessionStorage.removeItem('peeble-physical-key');
-        console.log('🧹 PWA data cleared');
-    },
-    
-    simulatePWANavigation: (messageId, ipfsHash) => {
-        handlePeebleUrlNavigation({
-            type: 'PEEBLE_URL_NAVIGATION',
-            messageId: messageId || 'TEST-PWA-123',
-            ipfsHash: ipfsHash || 'QmTestPWAHash123',
-            fullUrl: `${window.location.origin}/?test=pwa`,
-            timestamp: Date.now()
-        });
-    }
-};
-
-// Export the PWA initialization function
-window.initPWAFeatures = initPWAFeatures;
 
 // =======================================================
 // === MAIN APPLICATION INITIALIZATION ===
@@ -504,7 +192,7 @@ window.initPWAFeatures = initPWAFeatures;
 document.addEventListener('DOMContentLoaded', () => {
     debugLog('DOM Content Loaded. Initializing Reactive Peeble App.');
 
-    // FIX: Add event listener to track ALL nfc-tag-scanned events
+    // Add event listener to track ALL nfc-tag-scanned events
     eventBus.subscribe('nfc-tag-scanned', (data) => {
         debugLog('🔍 MAIN.JS: nfc-tag-scanned event received!', 'info');
         debugLog(`   Serial: ${data.serial || 'NULL'}`, 'info');
@@ -637,20 +325,33 @@ document.addEventListener('DOMContentLoaded', () => {
         debugLog(`🔧 DEVELOPMENT MODE ACTIVE - API Key: ${pinataApiKey.substring(0, 8)}...`, 'warning');
     }
 
-    // FIX: Add a helpful message for debugging NFC
+    // Add helpful debug tips
     setTimeout(() => {
         debugLog('🔧 DEBUG TIP: If NFC scanning issues occur, try:', 'info');
         debugLog('   1. simulateNfcScan("TEST-123") to test event flow', 'info');
         debugLog('   2. debugState() to check current state', 'info');
         debugLog('   3. forceAutoLoad() to trigger manual load', 'info');
-        debugLog('   4. pwaDiagnostics.checkNfcState() to check PWA NFC state', 'info');
     }, 2000);
 
-    // Initialize PWA features after main app
-    setTimeout(() => {
-        debugLog('🔧 PWA: Starting PWA feature initialization...');
-        initPWAFeatures();
-    }, 1000);
+    // ✅ CRITICAL: Initialize simple PWA navigation
+    setupSimplePWANavigation();
+    
+    // Check if we're in PWA mode
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                 window.navigator.standalone === true;
+    
+    if (isPWA) {
+        debugLog('📱 PWA: Running in PWA mode - NFC routing should work!', 'success');
+    } else {
+        debugLog('🌐 PWA: Running in browser mode - install PWA for better NFC routing', 'warning');
+    }
+    
+    // Check service worker status
+    if (navigator.serviceWorker) {
+        navigator.serviceWorker.ready.then(() => {
+            debugLog('🔧 PWA: Service worker is ready', 'success');
+        });
+    }
 });
 
 // For debugging purposes, expose key objects globally
