@@ -91,9 +91,12 @@
                 <div class="mt-8">
                     <h3 class="text-xl font-bold text-gray-800 mb-4">Current Playlist</h3>
                     <div id="playlist-container" class="space-y-2"></div>
-                    <button id="save-playlist-btn" class="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors duration-300 hidden">
-                        Save Playlist to Peeble
-                    </button>
+                    <div class="flex justify-between items-center">
+                        <button id="clear-playlist-btn" class="text-red-500 hover:underline text-sm font-medium">Clear Playlist</button>
+                        <button id="save-playlist-btn" class="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors duration-300 hidden">
+                            Save Playlist to Peeble
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -413,6 +416,7 @@
         const playlistView = document.getElementById('playlist-view');
         const loadingIndicator = document.getElementById('loading-indicator');
         const playlistItemsContainer = document.getElementById('playlist-items-container');
+        const clearPlaylistBtn = document.getElementById('clear-playlist-btn');
 
         // --- App State & Services ---
         const dexieDB = new Dexie('PeeblePlaylistDB');
@@ -632,6 +636,12 @@
             savePlaylistBtn.classList.add('hidden');
             renderPlaylist();
             log('Writer app reset.', 'info');
+        });
+
+        clearPlaylistBtn.addEventListener('click', async () => {
+            await dexieDB.messages.clear();
+            log('Playlist cleared from local database.', 'info');
+            renderPlaylist();
         });
 
         async function renderPlaylist() {
