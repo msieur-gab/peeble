@@ -35,8 +35,14 @@
                 <span class="font-medium text-gray-700">Checking NFC support...</span>
             </p>
             <p>1. Ensure your device's NFC is turned on.</p>
-            <p>2. Tap the Peeble stone to the back of your phone to scan.</p>
-            <p>3. The message details will appear below.</p>
+            <p>2. Activate the NFC scan below.</p>
+            <p>3. Tap the Peeble stone to the back of your phone to scan.</p>
+            <p>4. The message details will appear below.</p>
+            <div id="activation-area" class="mt-4 text-center">
+                <button id="activate-nfc-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    Activate NFC & Start Scan
+                </button>
+            </div>
         </div>
 
         <!-- Result Display -->
@@ -72,8 +78,10 @@
     </div>
 
     <script>
-        // Use a unique ID for the console to avoid conflicts
         const logContainer = document.getElementById('log-container');
+        const nfcStatusText = document.getElementById('nfc-status-text');
+        const activateNfcBtn = document.getElementById('activate-nfc-btn');
+        let reader = null; // Declare reader globally to manage its state
 
         // Log function to handle messages with different colors
         function log(message, type = 'info') {
@@ -99,30 +107,46 @@
             logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
         }
 
-        // Check for Web NFC support and start scanning
+        // Check for Web NFC support on page load
         document.addEventListener('DOMContentLoaded', () => {
-            const nfcStatusText = document.getElementById('nfc-status-text');
-            
             if ('NDEFReader' in window) {
                 log('Web NFC API is supported.', 'success');
-                nfcStatusText.innerHTML = '<span class="text-green-600 font-bold">NFC Ready!</span> Tap your Peeble to the back of your phone.';
-                startNfcScanning();
+                nfcStatusText.innerHTML = '<span class="text-green-600 font-bold">NFC Supported!</span> Click the button to start the scan.';
+                activateNfcBtn.disabled = false;
             } else {
                 log('Web NFC API is not supported in this browser.', 'error');
                 nfcStatusText.innerHTML = '<span class="text-red-600 font-bold">NFC Not Supported.</span> This feature requires a compatible browser (e.g., Chrome on Android) and an NFC-enabled device.';
+                activateNfcBtn.disabled = true;
+                activateNfcBtn.textContent = 'NFC Not Supported';
             }
         });
 
-        // Function to start the NFC scan process
+        // Function to start the NFC scan process, triggered by a user gesture
+        activateNfcBtn.addEventListener('click', () => {
+            startNfcScanning();
+        });
+
         async function startNfcScanning() {
+            // Check if we are already scanning to prevent multiple calls
+            if (reader) {
+                log('NFC scan is already active.', 'warning');
+                return;
+            }
+
             try {
-                const reader = new NDEFReader();
+                // Instantiating the reader and calling scan() within a user gesture is crucial
+                // for getting permission and a reliable connection.
+                reader = new NDEFReader();
                 log('Starting NDEFReader scan...', 'info');
+                
+                activateNfcBtn.textContent = 'Scanning...';
+                activateNfcBtn.disabled = true;
+                nfcStatusText.innerHTML = '<span class="text-green-600 font-bold">Scanning Active!</span> Tap your Peeble to the back of your phone.';
+
 
                 reader.onreading = (event) => {
                     log('NFC Tag detected!', 'success');
                     
-                    // The core logic to extract serial and URL from the event
                     let extractedSerial = event.serialNumber;
                     let urlRecord = null;
                     
@@ -145,33 +169,49 @@
                         log('No NDEF message or records found.', 'warning');
                     }
                     
-                    // Check if we found a URL and a serial number
                     if (extractedSerial && urlRecord) {
                         displayResults(extractedSerial, urlRecord);
                     } else {
                         log('Could not extract both serial number and URL from the tag.', 'error');
-                        // Display what we did get for debugging
                         if (extractedSerial) {
-                             displayResults(extractedSerial, 'URL not found');
+                            displayResults(extractedSerial, 'URL not found');
                         } else {
                             log('No serial number found in event. This may be a browser limitation or tag type issue.', 'error');
                             displayResults('Serial not found', urlRecord);
                         }
                     }
+
+                    // For this prototype, we'll stop scanning after the first successful read
+                    // In a real app, you might want to keep listening
+                    stopNfcScanning();
                 };
 
                 reader.onreadingerror = (error) => {
                     log(`NFC reading error: ${error.message}`, 'error');
+                    stopNfcScanning(); // Also stop on error
                 };
 
                 await reader.scan();
-                log('NFC scan activated. Ready to listen for tags.', 'success');
+                log('NFC scan successfully activated. Ready to listen for tags.', 'success');
             } catch (error) {
                 log(`Failed to start NFC scan: ${error.message}`, 'error');
                 if (error.name === 'NotAllowedError') {
                     log('NFC access was denied. Please allow it in your browser settings.', 'warning');
                 }
+                stopNfcScanning();
             }
+        }
+
+        // Function to stop the NFC scan process and reset UI
+        function stopNfcScanning() {
+            // As of now, there is no explicit `reader.stop()` method.
+            // The scan listener automatically stops when the page loses focus.
+            // We can, however, reset our UI state.
+            reader = null;
+            activateNfcBtn.textContent = 'Activate NFC & Start Scan';
+            activateNfcBtn.disabled = false;
+            nfcStatusText.innerHTML = '<span class="text-green-600 font-bold">NFC Ready!</span> Click the button to start the scan.';
+            log('NFC scan stopped.', 'info');
         }
 
         // Function to parse the URL and display the results
