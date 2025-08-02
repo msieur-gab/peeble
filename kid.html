@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peeble Standalone Player Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300">
+        <div class="flex items-center space-x-4 mb-6">
+            <div class="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v20m-5-5l5 5 5-5M12 2L7 7m5-5l5 5"/>
+                    <path d="M12 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+                </svg>
+            </div>
+            <div>
+                <h1 id="app-title" class="text-3xl font-bold text-gray-800">Peeble Playlist Player</h1>
+                <p id="app-subtitle" class="text-gray-500 mt-1">Tap a Peeble to listen to messages</p>
+            </div>
+        </div>
+
+        <div id="player-app">
+            <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6 shadow-inner">
+                <p class="text-sm"><span class="font-bold">Note:</span> A real NFC-enabled device is required to use this feature.</p>
+            </div>
+            
+            <div id="player-status-section" class="bg-blue-50 border border-blue-200 text-blue-800 p-6 rounded-lg shadow-inner text-center">
+                <p class="font-medium" id="nfc-reader-status">NFC reader is not active.</p>
+                <button id="activate-reader-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg mt-2">Activate NFC Reader</button>
+            </div>
+
+            <div id="playlist-view" class="hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Playlist</h2>
+                <div id="loading-indicator" class="text-center p-8 hidden">
+                    <div class="animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent mx-auto"></div>
+                    <p class="mt-4 text-indigo-700">Downloading and decrypting playlist...</p>
+                </div>
+                <!-- Interactive player controls -->
+                <div id="player-controls" class="flex items-center justify-center space-x-6 mt-4">
+                    <button id="prev-btn" class="text-indigo-600 disabled:text-gray-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                    </button>
+                    <button id="play-pause-btn" class="bg-indigo-600 text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    </button>
+                    <button id="next-btn" class="text-indigo-600 disabled:text-gray-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-10 6l8.5 6V6z"/></svg>
+                    </button>
+                    <button id="loop-btn" class="text-gray-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+                    </button>
+                </div>
+                <div id="current-track-info" class="text-center mt-4 text-gray-700">
+                    <p id="current-track-title" class="font-semibold text-lg"></p>
+                </div>
+                <audio id="playlist-audio-player" class="w-full mt-4"></audio>
+                <div id="playlist-items-container" class="space-y-4 mt-4"></div>
+            </div>
+        </div>
+
+        <div class="mt-8 bg-gray-900 text-white rounded-lg p-4 shadow-lg overflow-y-auto max-h-60">
+            <h3 class="font-mono text-xs text-green-400 mb-2">>> LIVE LOG <<</h3>
+            <div id="log-container" class="font-mono text-xs space-y-1"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Utility Functions ---
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = 'flex space-x-2';
+            let colorClass = 'text-gray-400';
+            let emoji = '📋';
+            if (type === 'success') { colorClass = 'text-green-400'; emoji = '✅'; } 
+            else if (type === 'error') { colorClass = 'text-red-400'; emoji = '❌'; } 
+            else if (type === 'warning') { colorClass = 'text-yellow-400'; emoji = '⚠️'; }
+            logItem.innerHTML = `<span class="text-gray-600">${timestamp}</span><span class="${colorClass}">${emoji} ${message}</span>`;
+            logContainer.appendChild(logItem);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        class StorageService {
+            // Note: API keys are not needed in the player app as it only downloads from public gateways.
+            constructor(apiKey, secret) {
+                this.apiKey = apiKey;
+                this.secret = secret;
+                this.pinataGatewayUrl = 'https://gateway.pinata.cloud/ipfs/';
+                this.publicGateways = [
+                    'https://ipfs.io/ipfs/',
+                    'https://cloudflare-ipfs.com/ipfs/',
+                ];
+            }
+
+            async downloadMessagePackage(ipfsHash) {
+                log(`Starting secure download for hash: ${ipfsHash}`, 'info');
+                let lastError = null;
+                
+                // The player app will primarily use public gateways
+                for (const gateway of this.publicGateways) {
+                    try {
+                        const url = `${gateway}${ipfsHash}`;
+                        log(`Attempting download from public gateway: ${url}`, 'info');
+                        const response = await fetch(url);
+                        if (response.ok) {
+                            log('Download successful from public gateway.', 'success');
+                            return await response.json();
+                        }
+                        lastError = new Error(`Public gateway failed: ${response.statusText}`);
+                    } catch (e) {
+                        lastError = e;
+                        log(`Public gateway download failed: ${e.message}`, 'error');
+                    }
+                }
+                
+                // If all attempts fail
+                throw new Error(`All download attempts failed. Last error: ${lastError.message}`);
+            }
+        }
+
+        class EncryptionService {
+            async deriveEncryptionKey(serial, timestamp) {
+                const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(timestamp.toString()), 'PBKDF2', false, ['deriveKey']);
+                return crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt: new TextEncoder().encode(serial), iterations: 100000, hash: 'SHA-256' },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            }
+            async decryptFromBinary(encryptedData, key) {
+                const iv = encryptedData.slice(0, 12);
+                const encrypted = encryptedData.slice(12);
+                return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encrypted);
+            }
+            base64ToBin(base64) {
+                const binaryString = atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return bytes;
+            }
+        }
+        
+        class NFCService {
+            constructor() {
+                this.reader = null;
+                this.readerActive = false;
+            }
+
+            isSupported() {
+                return 'NDEFReader' in window;
+            }
+
+            async startReader(onTagRead) {
+                if (!this.isSupported()) {
+                    throw new Error('Web NFC read is not supported on this device.');
+                }
+                if (this.readerActive) {
+                    log('NFC reader is already active.', 'warning');
+                    return;
+                }
+
+                log('Starting NFC reader...', 'info');
+                try {
+                    this.reader = new NDEFReader();
+                    this.reader.onreading = (event) => {
+                        const serial = event.serialNumber;
+                        let url = null;
+                        if (event.message && event.message.records) {
+                            for (const record of event.message.records) {
+                                if (record.recordType === 'url') {
+                                    const decoder = new TextDecoder();
+                                    url = decoder.decode(record.data);
+                                    break;
+                                }
+                            }
+                        }
+                        onTagRead(serial, url);
+                    };
+
+                    this.reader.onreadingerror = (e) => {
+                        log(`NFC reading error: ${e.message}`, 'error');
+                        this.readerActive = false;
+                    };
+
+                    await this.reader.scan();
+                    this.readerActive = true;
+                    log('NFC reader activated. Tap a Peeble to scan.', 'success');
+                } catch (e) {
+                    log(`Failed to start NFC reader: ${e.message}`, 'error');
+                    this.readerActive = false;
+                    throw e;
+                }
+            }
+            
+            async stopReader() {
+                 if (this.reader && this.readerActive) {
+                    this.readerActive = false;
+                    log('NFC reader stopped.', 'info');
+                 }
+            }
+        }
+
+        // --- UI Elements ---
+        const logContainer = document.getElementById('log-container');
+        const nfcReaderStatus = document.getElementById('nfc-reader-status');
+        const activateReaderBtn = document.getElementById('activate-reader-btn');
+        const playlistView = document.getElementById('playlist-view');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const playlistItemsContainer = document.getElementById('playlist-items-container');
+        const playerAudioPlayer = document.getElementById('playlist-audio-player');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const prevBtn = document.getElementById('prev-btn');
+        const loopBtn = document.getElementById('loop-btn');
+        const currentTrackTitle = document.getElementById('current-track-title');
+
+        // --- App State & Services ---
+        const encryptionService = new EncryptionService();
+        const nfcService = new NFCService();
+        const storageService = new StorageService();
+        let currentPlaylist = [];
+        let currentTrackIndex = 0;
+        let isLooping = false;
+        let isPlaying = false;
+
+        // --- Player Control Functions ---
+        function playTrack(index) {
+            if (currentPlaylist.length === 0) return;
+            if (index < 0) index = currentPlaylist.length - 1;
+            if (index >= currentPlaylist.length) index = 0;
+            currentTrackIndex = index;
+            const track = currentPlaylist[currentTrackIndex];
+            playerAudioPlayer.src = track.audioUrl;
+            currentTrackTitle.textContent = track.title;
+            playerAudioPlayer.play();
+            isPlaying = true;
+            updatePlayPauseButton();
+            updatePlaylistUI();
+        }
+
+        function updatePlayPauseButton() {
+            if (isPlaying) {
+                playPauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+            } else {
+                playPauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+            }
+        }
+
+        function updatePlaylistUI() {
+             playlistItemsContainer.innerHTML = '';
+             currentPlaylist.forEach((track, index) => {
+                const item = document.createElement('div');
+                const isCurrent = index === currentTrackIndex;
+                const isPlayingIcon = isCurrent && isPlaying ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>' : '';
+                item.className = `p-3 rounded-lg flex items-center justify-between transition-colors duration-200 cursor-pointer ${isCurrent ? 'bg-indigo-100' : 'bg-gray-50'}`;
+                item.innerHTML = `
+                    <div class="flex items-center">
+                        ${isPlayingIcon}
+                        <span class="font-medium text-gray-800">${track.title}</span>
+                    </div>
+                    <audio src="${track.audioUrl}" controls class="hidden"></audio>
+                `;
+                item.addEventListener('click', () => {
+                    playTrack(index);
+                });
+                playlistItemsContainer.appendChild(item);
+             });
+        }
+        
+        // --- Player App Logic ---
+        activateReaderBtn.addEventListener('click', async () => {
+            try {
+                await nfcService.startReader((serial, url) => {
+                    log(`NFC tag scanned! Serial: ${serial}, URL: ${url}`, 'success');
+                    if (serial && url) {
+                        loadPlaylistFromNfc(serial, url);
+                    } else {
+                        log('NFC tag data is incomplete. Please ensure it is a Peeble tag.', 'warning');
+                    }
+                });
+                nfcReaderStatus.textContent = 'NFC reader is active. Tap a Peeble to scan.';
+                activateReaderBtn.disabled = true;
+            } catch (e) {
+                log(`NFC activation failed: ${e.message}`, 'error');
+                nfcReaderStatus.textContent = 'NFC reader could not be activated.';
+            }
+        });
+
+        async function loadPlaylistFromNfc(serial, url) {
+            playlistView.classList.remove('hidden');
+            loadingIndicator.classList.remove('hidden');
+            playlistItemsContainer.innerHTML = '';
+            nfcReaderStatus.textContent = `NFC tag scanned with serial: ${serial}! Loading playlist...`;
+            activateReaderBtn.disabled = true;
+            
+            try {
+                const urlObj = new URL(url);
+                const params = new URLSearchParams(urlObj.hash.substring(1));
+                const playlistHash = params.get('playlistHash');
+                if (!playlistHash) throw new Error('Invalid URL. Missing playlistHash parameter.');
+
+                const playlistManifest = await storageService.downloadMessagePackage(playlistHash);
+
+                currentPlaylist = [];
+                for (const item of playlistManifest.messages) {
+                    log(`Processing message: ${item.messageId}`, 'info');
+                    const encryptedPackage = await storageService.downloadMessagePackage(item.ipfsHash);
+                    
+                    const encryptedAudioBin = encryptionService.base64ToBin(encryptedPackage.encryptedAudio);
+                    const decryptionKey = await encryptionService.deriveEncryptionKey(serial, encryptedPackage.timestamp);
+                    const decryptedAudio = await encryptionService.decryptFromBinary(encryptedAudioBin, decryptionKey);
+
+                    const audioBlob = new Blob([decryptedAudio], { type: 'audio/webm' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+
+                    currentPlaylist.push({
+                        title: encryptedPackage.metadata.title,
+                        audioUrl: audioUrl
+                    });
+                    log(`Decrypted and added message "${encryptedPackage.metadata.title}" to playlist.`, 'success');
+                }
+
+                loadingIndicator.classList.add('hidden');
+                nfcReaderStatus.textContent = 'Playlist ready!';
+                log('Playlist ready!', 'success');
+                
+                playTrack(0);
+                
+            } catch (err) {
+                loadingIndicator.classList.add('hidden');
+                log(`Failed to load playlist: ${err.message}`, 'error');
+                playlistItemsContainer.innerHTML = `<p class="text-red-500 text-center">Error: ${err.message}</p>`;
+                nfcReaderStatus.textContent = 'NFC scan failed. Please try again.';
+            } finally {
+                 activateReaderBtn.disabled = false;
+            }
+        }
+
+        // --- Player Event Listeners ---
+        playPauseBtn.addEventListener('click', () => {
+            if (playerAudioPlayer.paused) {
+                playerAudioPlayer.play();
+                isPlaying = true;
+            } else {
+                playerAudioPlayer.pause();
+                isPlaying = false;
+            }
+            updatePlayPauseButton();
+            updatePlaylistUI();
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentPlaylist.length === 0) return;
+            playTrack(currentTrackIndex + 1);
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentPlaylist.length === 0) return;
+            playTrack(currentTrackIndex - 1);
+        });
+        
+        loopBtn.addEventListener('click', () => {
+            isLooping = !isLooping;
+            playerAudioPlayer.loop = isLooping;
+            loopBtn.classList.toggle('text-indigo-600', isLooping);
+            loopBtn.classList.toggle('text-gray-400', !isLooping);
+            log(`Looping is now ${isLooping ? 'ON' : 'OFF'}.`, 'info');
+        });
+
+        playerAudioPlayer.addEventListener('ended', () => {
+            if (isLooping) {
+                playTrack(currentTrackIndex); // Looping current track
+            } else {
+                playTrack(currentTrackIndex + 1); // Play next track
+            }
+        });
+    </script>
+</body>
+</html>
