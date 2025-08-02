@@ -10,7 +10,6 @@ import { AudioServiceAdapter } from './services/audio-service-adapter.js';
 import './components/debug-console.js';
 import './components/peeble-app.js';
 import './components/nfc-handler.js';
-import './github-pages-config.js';
 
 // =======================================================
 // === DEVELOPMENT SETUP: PINATA CREDENTIALS ===
