@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Peeble PWA Icon Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        canvas { border: 1px solid #ddd; margin: 10px; }
+        .icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+        .icon-item { text-align: center; padding: 10px; border: 1px solid #eee; border-radius: 5px; }
+        button { background: #5a67d8; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #4c51bf; }
+        .download-links { margin-top: 20px; }
+        .download-links a { display: inline-block; margin: 5px; padding: 8px 16px; background: #38a169; color: white; text-decoration: none; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🪨 Peeble PWA Icon Generator</h1>
+        <p>Generate all the PWA icons you need for Peeble app installation.</p>
+        
+        <button onclick="generateAllIcons()">🎨 Generate All Icons</button>
+        <button onclick="downloadAllIcons()">📥 Download All</button>
+        
+        <div id="iconContainer" class="icon-grid"></div>
+        <div id="downloadLinks" class="download-links"></div>
+    </div>
+
+    <script>
+        const iconSizes = [
+            { size: 16, name: 'icon-16x16.png' },
+            { size: 32, name: 'icon-32x32.png' },
+            { size: 72, name: 'icon-72x72.png' },
+            { size: 96, name: 'icon-96x96.png' },
+            { size: 128, name: 'icon-128x128.png' },
+            { size: 144, name: 'icon-144x144.png' },
+            { size: 152, name: 'icon-152x152.png' },
+            { size: 180, name: 'icon-180x180.png' },
+            { size: 192, name: 'icon-192x192.png' },
+            { size: 384, name: 'icon-384x384.png' },
+            { size: 512, name: 'icon-512x512.png' }
+        ];
+        
+        let generatedIcons = [];
+
+        function drawPeebleIcon(canvas, size) {
+            const ctx = canvas.getContext('2d');
+            const center = size / 2;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+            
+            // Background gradient
+            const gradient = ctx.createRadialGradient(center, center, 0, center, center, center);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(1, '#5a67d8');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Stone shape (rounded rectangle)
+            const cornerRadius = size * 0.15;
+            ctx.fillStyle = '#4c51bf';
+            ctx.beginPath();
+            ctx.roundRect(size * 0.1, size * 0.1, size * 0.8, size * 0.8, cornerRadius);
+            ctx.fill();
+            
+            // Pebble emoji or symbol
+            ctx.fillStyle = 'white';
+            ctx.font = `${size * 0.4}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🪨', center, center);
+            
+            // Add subtle shadow/depth
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            ctx.beginPath();
+            ctx.roundRect(size * 0.12, size * 0.12, size * 0.76, size * 0.76, cornerRadius * 0.8);
+            ctx.fill();
+            
+            // Final icon overlay
+            ctx.fillStyle = 'white';
+            ctx.font = `${size * 0.35}px Arial`;
+            ctx.fillText('🪨', center, center * 0.95);
+        }
+
+        function generateIcon(size, name) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            
+            drawPeebleIcon(canvas, size);
+            
+            return new Promise((resolve) => {
+                canvas.toBlob((blob) => {
+                    resolve({ blob, name, canvas });
+                }, 'image/png');
+            });
+        }
+
+        async function generateAllIcons() {
+            const container = document.getElementById('iconContainer');
+            const downloadContainer = document.getElementById('downloadLinks');
+            
+            container.innerHTML = '<p>Generating icons...</p>';
+            downloadContainer.innerHTML = '';
+            generatedIcons = [];
+            
+            for (const iconConfig of iconSizes) {
+                const { blob, name, canvas } = await generateIcon(iconConfig.size, iconConfig.name);
+                
+                // Store for download
+                generatedIcons.push({ blob, name });
+                
+                // Display preview
+                const iconItem = document.createElement('div');
+                iconItem.className = 'icon-item';
+                iconItem.innerHTML = `
+                    <canvas width="${iconConfig.size}" height="${iconConfig.size}" style="max-width: 64px; max-height: 64px;"></canvas>
+                    <br>
+                    <small>${name}</small>
+                    <br>
+                    <small>${iconConfig.size}x${iconConfig.size}</small>
+                `;
+                
+                // Copy the generated canvas to the preview
+                const previewCanvas = iconItem.querySelector('canvas');
+                const previewCtx = previewCanvas.getContext('2d');
+                previewCtx.drawImage(canvas, 0, 0);
+                
+                container.appendChild(iconItem);
+                
+                // Create download link
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = name;
+                link.textContent = `Download ${name}`;
+                downloadContainer.appendChild(link);
+            }
+            
+            container.innerHTML = container.innerHTML.replace('<p>Generating icons...</p>', '');
+        }
+
+        function downloadAllIcons() {
+            if (generatedIcons.length === 0) {
+                alert('Please generate icons first!');
+                return;
+            }
+            
+            // Create a zip-like download experience
+            generatedIcons.forEach(({ blob, name }, index) => {
+                setTimeout(() => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, index * 200); // Stagger downloads
+            });
+        }
+
+        // Auto-generate icons on load
+        window.addEventListener('load', () => {
+            setTimeout(generateAllIcons, 500);
+        });
+    </script>
+</body>
+</html>

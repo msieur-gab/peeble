@@ -1,4 +1,4 @@
-// main.js
+// main.js - PWA Enhanced Version
 
 import { debugLog } from './services/utils.js';
 import { StorageService } from './services/storage.js';
@@ -26,9 +26,7 @@ let storageService; // Global instance of StorageService
 let audioServiceAdapter; // Audio service adapter
 
 /**
- * Initializes the Pinata API credentials and tests the connection.
- * This function is exposed globally for the HTML button.
- * Note: In development mode with hardcoded keys, this may not be needed.
+ * PWA-enhanced Pinata connection test
  * @global
  */
 window.testPinataConnection = async function() {
@@ -109,6 +107,7 @@ window.debugState = () => {
     console.log('NFC Write Mode:', state.nfcWriteMode);
     console.log('Write URL Queue:', state.writeUrlQueue ? `✅ ${state.writeUrlQueue.substring(0, 30)}...` : '❌ Missing');
     console.log('Status Message:', state.statusMessage);
+    console.log('PWA Mode:', isPWA() ? '✅ Installed App' : '🌐 Browser');
     return state;
 };
 
@@ -122,17 +121,122 @@ window.forceAutoLoad = () => {
 };
 
 /**
- * Main application initialization logic.
- * Runs when the DOM is fully loaded.
+ * PWA Helper Functions
+ */
+function isPWA() {
+    return window.matchMedia('(display-mode: standalone)').matches || 
+           window.navigator.standalone === true;
+}
+
+function handlePWANavigation() {
+    // Enhanced URL handling for PWA
+    const currentUrl = new URL(window.location.href);
+    const params = new URLSearchParams(currentUrl.hash.substring(1));
+    
+    debugLog(`📱 PWA: Handling navigation to ${currentUrl.href}`, 'info');
+    
+    if (params.has('messageId') && params.has('ipfsHash')) {
+        debugLog('📱 PWA: URL contains message parameters, switching to reader mode', 'info');
+        
+        // Check for any stored physical key from previous scan
+        const keyData = sessionStorage.getItem('peeble-physical-key');
+        if (keyData) {
+            try {
+                const parsedKey = JSON.parse(keyData);
+                debugLog(`📱 PWA: Found stored physical key: ${parsedKey.serial}`, 'success');
+                
+                // Use the stored key immediately
+                eventBus.publish('nfc-tag-scanned', {
+                    url: currentUrl.href,
+                    serial: parsedKey.serial
+                });
+                return;
+            } catch (error) {
+                debugLog(`📱 PWA: Error parsing stored key: ${error.message}`, 'warning');
+                sessionStorage.removeItem('peeble-physical-key');
+            }
+        }
+        
+        // No stored key, but we have URL params - wait for NFC scan
+        debugLog('📱 PWA: No stored physical key, waiting for NFC scan...', 'info');
+    }
+}
+
+/**
+ * Enhanced NFC Event Handling for PWA
+ */
+function setupPWAEventHandlers() {
+    // Handle browser navigation events (back/forward buttons)
+    window.addEventListener('popstate', () => {
+        debugLog('📱 PWA: Browser navigation detected', 'info');
+        handlePWANavigation();
+    });
+    
+    // Handle PWA-specific events
+    window.addEventListener('appinstalled', () => {
+        debugLog('📱 PWA: App installed, improving NFC handling', 'success');
+        // Restart NFC scanning for better PWA integration
+        setTimeout(() => {
+            const nfcHandler = document.querySelector('nfc-handler');
+            if (nfcHandler && nfcHandler.initNfc) {
+                nfcHandler.initNfc();
+            }
+        }, 1000);
+    });
+    
+    // Handle online/offline events for PWA
+    window.addEventListener('online', () => {
+        debugLog('📱 PWA: Back online, resuming full functionality', 'success');
+        stateManager.setState({
+            statusMessage: '📱 Connected - Full functionality restored',
+            statusType: 'success'
+        });
+    });
+    
+    window.addEventListener('offline', () => {
+        debugLog('📱 PWA: Offline mode - limited functionality', 'warning');
+        stateManager.setState({
+            statusMessage: '📱 Offline mode - Some features unavailable',
+            statusType: 'warning'
+        });
+    });
+}
+
+/**
+ * PWA Background Sync Setup
+ */
+function setupBackgroundSync() {
+    if ('serviceWorker' in navigator && 'sync' in window.ServiceWorkerRegistration.prototype) {
+        // Register for background sync when messages need to be uploaded
+        eventBus.subscribe('upload-pending-messages', async () => {
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                await registration.sync.register('upload-pending-messages');
+                debugLog('📱 PWA: Background sync registered for pending uploads', 'info');
+            } catch (error) {
+                debugLog(`📱 PWA: Background sync registration failed: ${error.message}`, 'warning');
+            }
+        });
+    }
+}
+
+/**
+ * Main application initialization logic - PWA Enhanced
  */
 document.addEventListener('DOMContentLoaded', () => {
-    debugLog('DOM Content Loaded. Initializing Reactive Peeble App.');
+    debugLog('📱 PWA: DOM Content Loaded. Initializing Enhanced Peeble App.');
+    debugLog(`📱 PWA: Running in ${isPWA() ? 'standalone app' : 'browser'} mode`, 'info');
 
-    // FIX: Add event listener to track ALL nfc-tag-scanned events
+    // Setup PWA-specific event handlers
+    setupPWAEventHandlers();
+    setupBackgroundSync();
+
+    // Enhanced NFC event tracking for PWA
     eventBus.subscribe('nfc-tag-scanned', (data) => {
-        debugLog('🔍 MAIN.JS: nfc-tag-scanned event received!', 'info');
+        debugLog('📱 PWA: nfc-tag-scanned event received!', 'info');
         debugLog(`   Serial: ${data.serial || 'NULL'}`, 'info');
         debugLog(`   URL: ${data.url || 'NULL'}`, 'info');
+        debugLog(`   PWA Mode: ${isPWA() ? 'Yes' : 'No'}`, 'info');
     });
 
     // Determine which credentials to use
@@ -164,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
             pinataSecret: pinataSecret 
         });
         
-        debugLog('🔧 MAIN: Setting StorageService in StateManager...', 'info');
+        debugLog('📱 PWA: Setting StorageService in StateManager...', 'info');
         stateManager.setStorageService(storageService);
         debugLog('✅ StorageService automatically configured.', 'success');
         
@@ -174,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
             debugLog('🔧 API setup hidden - using development credentials.', 'info');
         }
     } else {
-        debugLog('⚠️ MAIN: StorageService not configured - missing credentials', 'warning');
+        debugLog('⚠️ PWA: StorageService not configured - missing credentials', 'warning');
     }
 
     // Populate API key inputs (for UI display, even if using hardcoded)
@@ -201,7 +305,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('pinataApiKey', newApiKey);
                 storageService.setCredentials(newApiKey, storageService.secret);
                 
-                // Update storage service in state if both credentials are present
                 if (newApiKey && stateManager.getState().pinataSecret) {
                     stateManager.setStorageService(storageService);
                 }
@@ -217,7 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem('pinataSecret', newSecret);
                 storageService.setCredentials(storageService.apiKey, newSecret);
                 
-                // Update storage service in state if both credentials are present
                 if (newSecret && stateManager.getState().pinataApiKey) {
                     stateManager.setStorageService(storageService);
                 }
@@ -245,31 +347,56 @@ document.addEventListener('DOMContentLoaded', () => {
         debugLog('PeebleApp component not found in the DOM.', 'error');
     }
 
-    // Initialize NFC Handler
+    // Initialize NFC Handler with PWA enhancements
     const nfcHandler = document.querySelector('nfc-handler');
     if (nfcHandler) {
         nfcHandler.initialize({ stateManager, eventBus });
-        debugLog('🔍 NFC Handler initialized and ready for tag scanning', 'info');
+        debugLog('📱 PWA: NFC Handler initialized with PWA enhancements', 'info');
+        
+        // In PWA mode, give NFC a bit more time to initialize
+        if (isPWA()) {
+            setTimeout(() => {
+                debugLog('📱 PWA: Delayed NFC initialization for PWA mode', 'info');
+                if (nfcHandler.initNfc) {
+                    nfcHandler.initNfc();
+                }
+            }, 500);
+        }
     } else {
         debugLog('NFC Handler component not found in the DOM.', 'error');
     }
 
-    debugLog('🎉 Reactive Peeble App initialization complete!');
+    // Handle initial PWA navigation
+    setTimeout(() => {
+        handlePWANavigation();
+    }, 100);
+
+    debugLog('🎉 PWA-Enhanced Peeble App initialization complete!');
     
-    // Log current credential status
+    // Log current setup
     if (FORCE_USE_HARDCODED_KEYS) {
         debugLog(`🔧 DEVELOPMENT MODE ACTIVE - API Key: ${pinataApiKey.substring(0, 8)}...`, 'warning');
     }
+    
+    if (isPWA()) {
+        debugLog('📱 PWA: Running as installed app - enhanced NFC handling active', 'success');
+    }
 
-    // FIX: Add a helpful message for debugging NFC
+    // Enhanced debugging tips for PWA
     setTimeout(() => {
-        debugLog('🔧 DEBUG TIP: If NFC scanning issues occur, try:', 'info');
+        debugLog('🔧 PWA DEBUG TIPS:', 'info');
         debugLog('   1. simulateNfcScan("TEST-123") to test event flow', 'info');
-        debugLog('   2. debugState() to check current state', 'info');
+        debugLog('   2. debugState() to check current state including PWA status', 'info');
         debugLog('   3. forceAutoLoad() to trigger manual load', 'info');
+        if (isPWA()) {
+            debugLog('   4. PWA mode active - better NFC handling enabled', 'success');
+        } else {
+            debugLog('   4. Consider installing as PWA for better NFC experience', 'warning');
+        }
     }, 2000);
 });
 
 // For debugging purposes, expose key objects globally
 window.eventBus = eventBus;
 window.stateManager = stateManager;
+window.isPWA = isPWA;

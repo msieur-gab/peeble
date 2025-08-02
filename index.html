@@ -4,6 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Peeble - Connecting Hearts</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#5a67d8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Peeble">
+    
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" href="./icons/icon-192.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="./icons/icon-152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="./icons/icon-167.png">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./icons/favicon-16x16.png">
+    
+    <!-- Microsoft Tiles -->
+    <meta name="msapplication-TileColor" content="#5a67d8">
+    <meta name="msapplication-TileImage" content="./icons/icon-144.png">
+    
+    <!-- PWA Splash Screen Meta -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.pinata.cloud https://gateway.pinata.cloud https://ipfs.io https://cloudflare-ipfs.com;">
+    
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -11,6 +41,14 @@
         <div class="logo">
             <h1>🪨 Peeble</h1>
             <p>Voice messages across languages & distances</p>
+        </div>
+
+        <!-- PWA Install Banner -->
+        <div id="pwa-install-banner" class="api-setup" style="display: none;">
+            <h3>📱 Install Peeble App</h3>
+            <p>For the best NFC experience, install Peeble as an app on your device.</p>
+            <button class="btn btn-small" id="pwa-install-btn">Install App</button>
+            <button class="btn btn-secondary btn-small" id="pwa-dismiss-btn">Maybe Later</button>
         </div>
 
         <!-- Pinata API Setup - This section will be hidden once credentials are saved -->
@@ -37,6 +75,11 @@
                     </ul>
                 </div>
             </details>
+        </div>
+        
+        <!-- PWA Status Indicator -->
+        <div id="pwa-status" class="status info" style="display: none;">
+            <span id="pwa-status-text">📱 PWA Status: Loading...</span>
         </div>
         
         <!-- NFC Serial number display for debugging -->
@@ -70,5 +113,147 @@
 
     <!-- Main App Initialization -->
     <script type="module" src="main.js"></script>
+
+    <!-- PWA Service Worker Registration -->
+    <script>
+        // PWA Service Worker registration and management
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then((registration) => {
+                        console.log('✅ PWA: Service Worker registered successfully:', registration.scope);
+                        
+                        // Check for updates
+                        registration.addEventListener('updatefound', () => {
+                            console.log('🔄 PWA: New version available');
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // New version is available
+                                    showUpdateAvailable();
+                                }
+                            });
+                        });
+                    })
+                    .catch((error) => {
+                        console.error('❌ PWA: Service Worker registration failed:', error);
+                    });
+            });
+
+            // Listen for service worker messages
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                const { data } = event;
+                console.log('📱 PWA: Received message from Service Worker:', data);
+                
+                if (data.type === 'NAVIGATE_TO_URL') {
+                    console.log('📱 PWA: Navigating to URL from SW:', data.url);
+                    // Update the current page URL without reload
+                    window.history.pushState({}, '', data.url);
+                    
+                    // Trigger the app to handle the new URL
+                    window.dispatchEvent(new Event('popstate'));
+                    
+                    // Manually trigger NFC tag scanned event if we have URL params
+                    if (data.hash && window.eventBus) {
+                        const params = new URLSearchParams(data.hash.substring(1));
+                        const messageId = params.get('messageId');
+                        const ipfsHash = params.get('ipfsHash');
+                        
+                        if (messageId && ipfsHash) {
+                            console.log('📱 PWA: Simulating NFC scan from URL navigation');
+                            setTimeout(() => {
+                                // This should trigger the app to handle the URL
+                                window.eventBus.publish('nfc-tag-scanned', {
+                                    url: data.url,
+                                    serial: 'PWA-NAVIGATION-' + Date.now()
+                                });
+                            }, 100);
+                        }
+                    }
+                }
+            });
+        }
+
+        // PWA Install prompt handling
+        let deferredPrompt;
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            console.log('📱 PWA: Install prompt available');
+            e.preventDefault();
+            deferredPrompt = e;
+            showInstallBanner();
+        });
+
+        window.addEventListener('appinstalled', () => {
+            console.log('✅ PWA: App installed successfully');
+            hideInstallBanner();
+            updatePWAStatus('📱 PWA: Installed and ready');
+        });
+
+        function showInstallBanner() {
+            const banner = document.getElementById('pwa-install-banner');
+            if (banner) {
+                banner.style.display = 'block';
+                
+                document.getElementById('pwa-install-btn').addEventListener('click', async () => {
+                    if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        console.log(`📱 PWA: Install prompt ${outcome}`);
+                        deferredPrompt = null;
+                        hideInstallBanner();
+                    }
+                });
+                
+                document.getElementById('pwa-dismiss-btn').addEventListener('click', () => {
+                    hideInstallBanner();
+                });
+            }
+        }
+
+        function hideInstallBanner() {
+            const banner = document.getElementById('pwa-install-banner');
+            if (banner) {
+                banner.style.display = 'none';
+            }
+        }
+
+        function showUpdateAvailable() {
+            if (confirm('🔄 A new version of Peeble is available. Update now?')) {
+                if (navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+                }
+                window.location.reload();
+            }
+        }
+
+        function updatePWAStatus(message) {
+            const status = document.getElementById('pwa-status');
+            const statusText = document.getElementById('pwa-status-text');
+            if (status && statusText) {
+                statusText.textContent = message;
+                status.style.display = 'block';
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Check if app is running as PWA
+        function isPWA() {
+            return window.matchMedia('(display-mode: standalone)').matches || 
+                   window.navigator.standalone === true;
+        }
+
+        // Update status based on PWA state
+        window.addEventListener('load', () => {
+            if (isPWA()) {
+                console.log('✅ PWA: Running as installed app');
+                updatePWAStatus('📱 PWA: Running as installed app');
+            } else {
+                console.log('🌐 PWA: Running in browser');
+            }
+        });
+    </script>
 </body>
 </html>
