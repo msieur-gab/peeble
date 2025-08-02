@@ -616,13 +616,30 @@
                 return;
             }
             writeNfcBtn.disabled = true;
-            writeNfcBtn.textContent = 'Tap Tag to Write...';
+            writeNfcBtn.textContent = 'Tap Tag to Verify & Write...';
+
             try {
-                await nfcService.writeUrl(url);
-                writeNfcBtn.textContent = 'Write Successful!';
-                nfcService.stopReader();
+                // SECURITY: Before writing, re-scan to ensure the user is presenting the same tag
+                await nfcService.startReader((scannedSerial, readUrl) => {
+                    nfcService.stopReader();
+                    if (scannedSerial === tagSerial) {
+                        log('Serial match confirmed. Writing URL to tag.', 'success');
+                        nfcService.writeUrl(url).then(() => {
+                             writeNfcBtn.textContent = 'Write Successful!';
+                        }).catch((e) => {
+                             log(`NFC write failed: ${e.message}`, 'error');
+                             writeNfcBtn.textContent = 'Write Failed';
+                             writeNfcBtn.disabled = false;
+                        });
+                    } else {
+                        log(`SECURITY ERROR: Scanned serial "${scannedSerial}" does not match original serial "${tagSerial}".`, 'error');
+                        log('Write cancelled. Please use the original Peeble.', 'error');
+                        writeNfcBtn.textContent = 'Serial Mismatch - Try Again';
+                        writeNfcBtn.disabled = false;
+                    }
+                });
             } catch (e) {
-                log(`NFC write failed: ${e.message}`, 'error');
+                log(`NFC scan failed: ${e.message}`, 'error');
                 writeNfcBtn.textContent = 'Write Failed';
                 writeNfcBtn.disabled = false;
             }
