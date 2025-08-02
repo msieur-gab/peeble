@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peeble E2E Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie@3.2.3/dist/dexie.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .recording.animate-pulse {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300">
+        <div class="flex items-center space-x-4 mb-6">
+            <div class="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v20m-5-5l5 5 5-5M12 2L7 7m5-5l5 5"/>
+                    <path d="M12 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+                </svg>
+            </div>
+            <div>
+                <h1 id="app-title" class="text-3xl font-bold text-gray-800">Peeble Demo</h1>
+                <p id="app-subtitle" class="text-gray-500 mt-1">Select an app mode below</p>
+            </div>
+        </div>
+
+        <!-- Mode Selector -->
+        <div id="mode-selector" class="flex justify-center space-x-4 mb-8">
+            <button id="mode-writer" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow-md transition-colors duration-200">Writer App</button>
+            <button id="mode-player" class="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg shadow-md transition-colors duration-200">Player App</button>
+        </div>
+
+        <!-- Parent App (Writer) -->
+        <div id="writer-app" class="hidden">
+            <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6 shadow-inner">
+                <p class="text-sm"><span class="font-bold">Note:</span> This app writes messages to a simulated NFC tag. A real app would use the Web NFC API.</p>
+                <p class="text-sm mt-2 font-bold">1. Set Pinata credentials and a serial. 2. Record clips. 3. Save playlist & copy the URL for the Player app.</p>
+            </div>
+            <!-- Pinata Credentials -->
+            <div id="api-setup-form">
+                <p class="font-medium text-gray-800 mb-2">Pinata IPFS Credentials</p>
+                <div class="flex flex-col space-y-2 mb-4">
+                    <input type="text" id="pinata-api-key" placeholder="Pinata API Key" class="flex-grow p-2 border border-gray-300 rounded-lg">
+                    <input type="password" id="pinata-secret" placeholder="Pinata Secret API Key" class="flex-grow p-2 border border-gray-300 rounded-lg">
+                    <input type="text" id="tag-serial-input" placeholder="Mock Tag Serial (e.g., TEST-SERIAL-123)" class="flex-grow p-2 border border-gray-300 rounded-lg">
+                    <button id="set-credentials-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Set Credentials & Serial</button>
+                </div>
+            </div>
+            
+            <div id="recording-area" class="hidden">
+                <div class="text-center space-y-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Record a new message</h2>
+                    <p class="text-gray-500">Add a title and then start recording.</p>
+                    <input type="text" id="message-title-input" placeholder="Message Title (e.g., 'To my dearest child')" class="w-full p-3 border-2 border-gray-300 rounded-lg text-lg focus:outline-none focus:border-indigo-500">
+                    <button id="record-btn" class="w-24 h-24 rounded-full bg-red-500 text-white text-3xl flex items-center justify-center mx-auto shadow-xl transition-all duration-200 hover:scale-110">
+                        <svg id="record-icon" xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 8v8M8 12h8" />
+                        </svg>
+                    </button>
+                    <p id="recording-timer" class="text-gray-500 font-medium">00:00</p>
+                    <button id="save-clip-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg hidden">Save Clip to Playlist</button>
+                    <div id="audio-preview-container" class="mt-4 hidden">
+                        <audio id="audio-preview" controls class="w-full"></audio>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Current Playlist</h3>
+                    <div id="playlist-container" class="space-y-2"></div>
+                    <button id="save-playlist-btn" class="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors duration-300 hidden">
+                        Save Playlist to Peeble
+                    </button>
+                </div>
+            </div>
+
+            <div id="writer-results" class="hidden">
+                <h2 class="text-2xl font-bold text-gray-800">Playlist Saved!</h2>
+                <p class="text-gray-500 mt-2">The following URL should be written to the NFC tag:</p>
+                <div class="mt-4 p-4 bg-gray-100 rounded-lg text-sm text-gray-800 break-all flex justify-between items-center">
+                    <pre id="nfc-url-display" class="flex-grow"></pre>
+                    <button id="copy-url-btn" class="ml-4 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg">Copy</button>
+                </div>
+                <div class="mt-4">
+                    <button id="writer-start-over-btn" class="w-full mt-4 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg">Start Over</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kid App (Player) -->
+        <div id="player-app" class="hidden">
+            <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6 shadow-inner">
+                <p class="text-sm"><span class="font-bold">Note:</span> This is a mock NFC reader. Paste the URL from the Writer app to simulate a scan.</p>
+            </div>
+            
+            <div id="player-status-section" class="bg-blue-50 border border-blue-200 text-blue-800 p-6 rounded-lg shadow-inner">
+                <p class="font-medium">Simulate NFC Scan</p>
+                <div class="mt-2 flex space-x-2 flex-col sm:flex-row">
+                    <input type="text" id="player-sim-serial-input" placeholder="Mock Tag Serial" class="flex-grow p-2 border border-gray-300 rounded-lg mb-2 sm:mb-0">
+                    <input type="text" id="player-sim-url-input" placeholder="Paste Playlist URL" class="flex-grow p-2 border border-gray-300 rounded-lg">
+                    <button id="player-sim-scan-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg mt-2 sm:mt-0">Simulate Scan</button>
+                </div>
+            </div>
+
+            <div id="playlist-view" class="hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Playlist</h2>
+                <div id="loading-indicator" class="text-center p-8 hidden">
+                    <div class="animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent mx-auto"></div>
+                    <p class="mt-4 text-indigo-700">Downloading and decrypting playlist...</p>
+                </div>
+                <div id="playlist-items-container" class="space-y-4 mt-4"></div>
+            </div>
+        </div>
+
+        <div class="mt-8 bg-gray-900 text-white rounded-lg p-4 shadow-lg overflow-y-auto max-h-60">
+            <h3 class="font-mono text-xs text-green-400 mb-2">>> LIVE LOG <<</h3>
+            <div id="log-container" class="font-mono text-xs space-y-1"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Utility Functions ---
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = 'flex space-x-2';
+            let colorClass = 'text-gray-400';
+            let emoji = '📋';
+            if (type === 'success') { colorClass = 'text-green-400'; emoji = '✅'; } 
+            else if (type === 'error') { colorClass = 'text-red-400'; emoji = '❌'; } 
+            else if (type === 'warning') { colorClass = 'text-yellow-400'; emoji = '⚠️'; }
+            logItem.innerHTML = `<span class="text-gray-600">${timestamp}</span><span class="${colorClass}">${emoji} ${message}</span>`;
+            logContainer.appendChild(logItem);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function createSecureNfcUrl({ playlistHash }) {
+            const baseUrl = window.location.origin + window.location.pathname;
+            return `${baseUrl}#playlistHash=${playlistHash}`;
+        }
+        
+        class StorageService {
+            constructor(apiKey, secret) {
+                this.apiKey = apiKey;
+                this.secret = secret;
+                this.pinataApiUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
+                this.pinataGatewayUrl = 'https://gateway.pinata.cloud/ipfs/';
+            }
+
+            setCredentials(apiKey, secret) {
+                this.apiKey = apiKey;
+                this.secret = secret;
+            }
+
+            async uploadMessagePackage(messagePackage) {
+                log('Uploading encrypted package to IPFS...', 'info');
+                const formData = new FormData();
+                const jsonString = JSON.stringify(messagePackage);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                formData.append('file', blob, 'package.json');
+                const metadata = JSON.stringify({ name: 'package.json' });
+                formData.append('pinataMetadata', metadata);
+                const response = await fetch(this.pinataApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'pinata_api_key': this.apiKey,
+                        'pinata_secret_api_key': this.secret
+                    },
+                    body: formData
+                });
+                if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+                const result = await response.json();
+                return result.IpfsHash;
+            }
+
+            async downloadFromIPFS(ipfsHash) {
+                log(`Downloading package from IPFS: ${ipfsHash}`, 'info');
+                const url = `${this.pinataGatewayUrl}${ipfsHash}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
+                return await response.json();
+            }
+        }
+
+        class EncryptionService {
+            async deriveEncryptionKey(serial, timestamp) {
+                const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(timestamp.toString()), 'PBKDF2', false, ['deriveKey']);
+                return crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt: new TextEncoder().encode(serial), iterations: 100000, hash: 'SHA-256' },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            }
+            async encryptDataToBinary(data, key) {
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, data);
+                const result = new Uint8Array(iv.length + encrypted.byteLength);
+                result.set(iv);
+                result.set(new Uint8Array(encrypted), iv.length);
+                return result;
+            }
+            async decryptFromBinary(encryptedData, key) {
+                const iv = encryptedData.slice(0, 12);
+                const encrypted = encryptedData.slice(12);
+                return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encrypted);
+            }
+            binToBase64(binary) {
+                let binaryString = '';
+                const len = binary.byteLength;
+                for (let i = 0; i < len; i++) {
+                    binaryString += String.fromCharCode(binary[i]);
+                }
+                return btoa(binaryString);
+            }
+            base64ToBin(base64) {
+                const binaryString = atob(base64);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return bytes;
+            }
+        }
+        
+        // --- UI Elements ---
+        const logContainer = document.getElementById('log-container');
+        const modeWriterBtn = document.getElementById('mode-writer');
+        const modePlayerBtn = document.getElementById('mode-player');
+        const writerApp = document.getElementById('writer-app');
+        const playerApp = document.getElementById('player-app');
+        
+        const apiSetupForm = document.getElementById('api-setup-form');
+        const pinataApiKeyInput = document.getElementById('pinata-api-key');
+        const pinataSecretInput = document.getElementById('pinata-secret');
+        const tagSerialInput = document.getElementById('tag-serial-input');
+        const setCredentialsBtn = document.getElementById('set-credentials-btn');
+        const recordingArea = document.getElementById('recording-area');
+        const recordBtn = document.getElementById('record-btn');
+        const recordingTimer = document.getElementById('recording-timer');
+        const messageTitleInput = document.getElementById('message-title-input');
+        const saveClipBtn = document.getElementById('save-clip-btn');
+        const audioPreviewContainer = document.getElementById('audio-preview-container');
+        const audioPreview = document.getElementById('audio-preview');
+        const playlistContainer = document.getElementById('playlist-container');
+        const savePlaylistBtn = document.getElementById('save-playlist-btn');
+        const writerResults = document.getElementById('writer-results');
+        const nfcUrlDisplay = document.getElementById('nfc-url-display');
+        const copyUrlBtn = document.getElementById('copy-url-btn');
+        const writerStartOverBtn = document.getElementById('writer-start-over-btn');
+
+        const playerSimSerialInput = document.getElementById('player-sim-serial-input');
+        const playerSimUrlInput = document.getElementById('player-sim-url-input');
+        const playerSimScanBtn = document.getElementById('player-sim-scan-btn');
+        const playlistView = document.getElementById('playlist-view');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const playlistItemsContainer = document.getElementById('playlist-items-container');
+
+        // --- App State & Services ---
+        const dexieDB = new Dexie('PeeblePlaylistDB');
+        dexieDB.version(1).stores({ 
+            settings: 'key, value',
+            messages: '++id, title, audioBlob'
+        });
+        const encryptionService = new EncryptionService();
+        let storageService = null;
+        let tagSerial = null;
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingStartTime;
+        let recordingInterval;
+
+        
+        // --- App Mode Switching ---
+        function setAppMode(mode) {
+            const url = new URL(window.location);
+            if (mode === 'writer') {
+                url.hash = '';
+                writerApp.classList.remove('hidden');
+                playerApp.classList.add('hidden');
+                document.getElementById('app-title').textContent = 'Peeble Playlist Writer';
+                document.getElementById('app-subtitle').textContent = 'Record multiple messages for one Peeble';
+            } else {
+                url.hash = 'player';
+                writerApp.classList.add('hidden');
+                playerApp.classList.remove('hidden');
+                document.getElementById('app-title').textContent = 'Peeble Playlist Player';
+                document.getElementById('app-subtitle').textContent = 'Tap a Peeble to listen to messages';
+            }
+            window.history.pushState({}, '', url);
+            modeWriterBtn.classList.toggle('bg-indigo-600', mode === 'writer');
+            modeWriterBtn.classList.toggle('text-white', mode === 'writer');
+            modeWriterBtn.classList.toggle('bg-gray-200', mode !== 'writer');
+            modeWriterBtn.classList.toggle('text-gray-800', mode !== 'writer');
+            modePlayerBtn.classList.toggle('bg-indigo-600', mode === 'player');
+            modePlayerBtn.classList.toggle('text-white', mode === 'player');
+            modePlayerBtn.classList.toggle('bg-gray-200', mode !== 'player');
+            modePlayerBtn.classList.toggle('text-gray-800', mode !== 'player');
+        }
+
+        // --- Writer App Logic ---
+        setCredentialsBtn.addEventListener('click', async () => {
+            const apiKey = pinataApiKeyInput.value.trim();
+            const secret = pinataSecretInput.value.trim();
+            const serial = tagSerialInput.value.trim();
+            if (apiKey && secret && serial) {
+                storageService = new StorageService(apiKey, secret);
+                tagSerial = serial;
+                
+                await dexieDB.settings.put({ key: 'apiKey', value: apiKey });
+                await dexieDB.settings.put({ key: 'secret', value: secret });
+                await dexieDB.settings.put({ key: 'serial', value: serial });
+
+                apiSetupForm.classList.add('hidden');
+                recordingArea.classList.remove('hidden');
+                log('Pinata credentials and tag serial set.', 'success');
+            } else {
+                log('Please fill in all fields.', 'warning');
+            }
+        });
+
+        recordBtn.addEventListener('click', async () => {
+            if (!tagSerial) { log('Please set a tag serial number first.', 'warning'); return; }
+            if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); return; }
+            if (!messageTitleInput.value.trim()) { log('Please add a title for this message before recording.', 'warning'); messageTitleInput.focus(); return; }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    audioPreview.src = audioUrl;
+                    audioPreviewContainer.classList.remove('hidden');
+                    saveClipBtn.classList.remove('hidden');
+                    stream.getTracks().forEach(track => track.stop());
+                    recordBtn.disabled = false;
+                    recordBtn.classList.remove('bg-red-700', 'recording');
+                    recordBtn.innerHTML = '▶️';
+                    log('Recording finished. Audio preview ready.', 'success');
+                    clearInterval(recordingInterval);
+                };
+                mediaRecorder.start();
+                recordingStartTime = Date.now();
+                recordingTimer.textContent = '00:00';
+                recordingTimer.classList.remove('hidden');
+                recordBtn.classList.add('bg-red-700', 'recording');
+                recordBtn.innerHTML = '⏹️';
+                log('Recording started.', 'info');
+                recordingInterval = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    recordingTimer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                }, 1000);
+            } catch (err) { log(`Error accessing microphone: ${err.message}`, 'error'); }
+        });
+
+        saveClipBtn.addEventListener('click', async () => {
+            if (!audioChunks.length) { log('No audio clip to save.', 'warning'); return; }
+            const title = messageTitleInput.value.trim() || 'Untitled Message';
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            try {
+                const id = await dexieDB.messages.add({ title: title, audioBlob: audioBlob });
+                log(`Message "${title}" saved to local database with ID: ${id}`, 'success');
+                renderPlaylist();
+                messageTitleInput.value = '';
+                audioPreviewContainer.classList.add('hidden');
+                saveClipBtn.classList.add('hidden');
+                audioChunks = [];
+            } catch (err) { log(`Failed to save to IndexedDB: ${err.message}`, 'error'); }
+        });
+
+        savePlaylistBtn.addEventListener('click', async () => {
+            if (!storageService) { log('Pinata credentials not set.', 'error'); return; }
+            savePlaylistBtn.disabled = true;
+            savePlaylistBtn.textContent = 'Encrypting & Uploading...';
+            log('Starting playlist encryption and upload process...', 'info');
+            const allMessages = await dexieDB.messages.toArray();
+            const playlistManifest = { version: 'playlist-v1', messages: [] };
+            const encService = new EncryptionService();
+            for (const message of allMessages) {
+                try {
+                    const timestamp = Date.now();
+                    const encryptionKey = await encService.deriveEncryptionKey(tagSerial, timestamp);
+                    const audioBuffer = await message.audioBlob.arrayBuffer();
+                    const encryptedAudio = await encService.encryptDataToBinary(audioBuffer, encryptionKey);
+                    
+                    const messagePackage = {
+                        messageId: `PBL-${message.id}`,
+                        timestamp: timestamp,
+                        encryptedAudio: encService.binToBase64(encryptedAudio),
+                        metadata: { title: message.title }
+                    };
+                    const ipfsHash = await storageService.uploadMessagePackage(messagePackage);
+                    playlistManifest.messages.push({ messageId: messagePackage.messageId, ipfsHash: ipfsHash });
+                    log(`Uploaded clip "${message.title}" (ID: ${message.id})`, 'success');
+                } catch (err) {
+                    log(`Failed to process message "${message.title}": ${err.message}`, 'error');
+                }
+            }
+            log('All clips uploaded. Now uploading the final playlist manifest...', 'info');
+            const finalManifestHash = await storageService.uploadMessagePackage(playlistManifest);
+            const finalNfcUrl = createSecureNfcUrl({ playlistHash: finalManifestHash });
+            writerResults.classList.remove('hidden');
+            recordingArea.classList.add('hidden');
+            nfcUrlDisplay.textContent = finalNfcUrl;
+            log('Playlist successfully uploaded and URL generated!', 'success');
+            log('Please copy this URL for the Player app.', 'info');
+        });
+
+        writerStartOverBtn.addEventListener('click', async () => {
+            await dexieDB.messages.clear();
+            writerResults.classList.add('hidden');
+            apiSetupForm.classList.remove('hidden');
+            recordingArea.classList.add('hidden');
+            savePlaylistBtn.classList.add('hidden');
+            renderPlaylist();
+            log('Writer app reset.', 'info');
+        });
+
+        copyUrlBtn.addEventListener('click', () => {
+            const url = nfcUrlDisplay.textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                log('URL copied to clipboard!', 'success');
+            }).catch(err => {
+                log('Failed to copy URL to clipboard.', 'error');
+            });
+        });
+
+        async function renderPlaylist() {
+            playlistContainer.innerHTML = '';
+            const messages = await dexieDB.messages.toArray();
+            if (messages.length === 0) {
+                playlistContainer.innerHTML = '<p class="text-gray-400 italic text-center">No messages added yet.</p>';
+                savePlaylistBtn.classList.add('hidden');
+                return;
+            }
+            messages.forEach(message => {
+                const item = document.createElement('div');
+                item.className = 'bg-gray-50 p-3 rounded-lg flex items-center justify-between shadow-sm';
+                item.innerHTML = `<span class="font-medium text-gray-800">${message.title}</span>`;
+                playlistContainer.appendChild(item);
+            });
+            savePlaylistBtn.classList.remove('hidden');
+        }
+
+        // --- Player App Logic ---
+        playerSimScanBtn.addEventListener('click', async () => {
+            const serial = playerSimSerialInput.value.trim();
+            const url = playerSimUrlInput.value.trim();
+            if (!serial || !url) {
+                log('Please provide a mock serial and URL to simulate a scan.', 'warning');
+                return;
+            }
+            log(`Simulating NFC scan with Serial: ${serial} and URL: ${url}`, 'info');
+            playlistView.classList.remove('hidden');
+            loadingIndicator.classList.remove('hidden');
+            playlistItemsContainer.innerHTML = '';
+
+            try {
+                const urlObj = new URL(url);
+                const params = new URLSearchParams(urlObj.hash.substring(1));
+                const playlistHash = params.get('playlistHash');
+                if (!playlistHash) throw new Error('Invalid URL. Missing playlistHash parameter.');
+
+                const storage = new StorageService(null, null);
+                const encService = new EncryptionService();
+
+                const playlistManifest = await storage.downloadFromIPFS(playlistHash);
+
+                for (const item of playlistManifest.messages) {
+                    log(`Processing message: ${item.messageId}`, 'info');
+                    const encryptedPackage = await storage.downloadFromIPFS(item.ipfsHash);
+                    const encryptedAudioBin = encService.base64ToBin(encryptedPackage.encryptedAudio);
+                    const decryptionKey = await encService.deriveEncryptionKey(serial, encryptedPackage.timestamp);
+                    const decryptedAudio = await encService.decryptFromBinary(encryptedAudioBin, decryptionKey);
+
+                    const audioBlob = new Blob([decryptedAudio], { type: 'audio/webm' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+
+                    const playlistItem = document.createElement('div');
+                    playlistItem.className = 'bg-gray-50 p-4 rounded-lg flex items-center shadow-md';
+                    playlistItem.innerHTML = `
+                        <div class="flex-grow">
+                            <p class="font-bold text-lg text-gray-800">${encryptedPackage.metadata.title}</p>
+                        </div>
+                        <audio controls class="ml-4">
+                            <source src="${audioUrl}" type="audio/webm">
+                            Your browser does not support the audio element.
+                        </audio>
+                    `;
+                    playlistItemsContainer.appendChild(playlistItem);
+                    log(`Decrypted and added message "${encryptedPackage.metadata.title}" to playlist.`, 'success');
+                }
+
+                loadingIndicator.classList.add('hidden');
+                log('Playlist ready!', 'success');
+
+            } catch (err) {
+                loadingIndicator.classList.add('hidden');
+                log(`Failed to load playlist: ${err.message}`, 'error');
+                playlistItemsContainer.innerHTML = `<p class="text-red-500 text-center">Error: ${err.message}</p>`;
+            }
+        });
+
+        // --- Main Initialization ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.hash.substring(1));
+            const isPlayerMode = urlParams.has('player');
+            setAppMode(isPlayerMode ? 'player' : 'writer');
+            
+            modeWriterBtn.addEventListener('click', () => setAppMode('writer'));
+            modePlayerBtn.addEventListener('click', () => setAppMode('player'));
+            
+            const settings = await dexieDB.settings.toArray();
+            if (settings.length > 0) {
+                const apiKey = settings.find(s => s.key === 'apiKey')?.value || '';
+                const secret = settings.find(s => s.key === 'secret')?.value || '';
+                const serial = settings.find(s => s.key === 'serial')?.value || '';
+                
+                pinataApiKeyInput.value = apiKey;
+                pinataSecretInput.value = secret;
+                tagSerialInput.value = serial;
+                
+                if (apiKey && secret && serial) {
+                    storageService = new StorageService(apiKey, secret);
+                    tagSerial = serial;
+                    apiSetupForm.classList.add('hidden');
+                    recordingArea.classList.remove('hidden');
+                }
+            }
+
+            if (!isPlayerMode) {
+                renderPlaylist();
+            }
+        });
+    </script>
+</body>
+</html>
