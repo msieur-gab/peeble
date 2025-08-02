@@ -1,28 +1,43 @@
-// sw.js - Peeble PWA Service Worker
+// sw.js - Fixed for GitHub Pages hosting
 
 const CACHE_NAME = 'peeble-v1.0.0';
 const STATIC_CACHE_NAME = 'peeble-static-v1.0.0';
 
-// Assets to cache for offline functionality
+// Get the base path for the app (works for both root and subpath hosting)
+function getBasePath() {
+    const location = self.location;
+    const pathSegments = location.pathname.split('/').filter(segment => segment && segment !== 'sw.js');
+    
+    // If hosted at root (e.g., example.com), return './'
+    if (pathSegments.length === 0) {
+        return './';
+    }
+    
+    // If hosted at subpath (e.g., username.github.io/repo-name/), return proper relative path
+    return './' + (pathSegments.length > 0 ? '' : '');
+}
+
+// Updated cache assets with relative paths that work with GitHub Pages
+const BASE_PATH = getBasePath();
 const CACHE_ASSETS = [
-    '/',
-    '/index.html',
-    '/style.css',
-    '/main.js',
-    '/services/audio.js',
-    '/services/encryption.js',
-    '/services/storage.js',
-    '/services/utils.js',
-    '/services/nfc.js',
-    '/services/pubsub.js',
-    '/services/state-manager.js',
-    '/services/audio-service-adapter.js',
-    '/components/debug-console.js',
-    '/components/voice-recorder.js',
-    '/components/message-player.js',
-    '/components/nfc-handler.js',
-    '/components/peeble-app.js',
-    '/manifest.json'
+    './',
+    './index.html',
+    './style.css', 
+    './main.js',
+    './services/audio.js',
+    './services/encryption.js',
+    './services/storage.js',
+    './services/utils.js',
+    './services/nfc.js',
+    './services/pubsub.js',
+    './services/state-manager.js',
+    './services/audio-service-adapter.js',
+    './components/debug-console.js',
+    './components/voice-recorder.js',
+    './components/message-player.js',
+    './components/nfc-handler.js',
+    './components/peeble-app.js',
+    './manifest.json'
 ];
 
 // Debug logging for service worker
@@ -35,11 +50,13 @@ function swLog(message, type = 'info') {
 // Install event - cache assets
 self.addEventListener('install', (event) => {
     swLog('Service Worker installing...');
+    swLog(`Base path detected: ${self.location.pathname}`);
     
     event.waitUntil(
         caches.open(STATIC_CACHE_NAME)
             .then((cache) => {
                 swLog('Caching app assets...');
+                swLog(`Assets to cache: ${CACHE_ASSETS.join(', ')}`);
                 return cache.addAll(CACHE_ASSETS);
             })
             .then(() => {
@@ -48,6 +65,7 @@ self.addEventListener('install', (event) => {
             })
             .catch((error) => {
                 swLog(`Failed to cache assets: ${error.message}`, 'error');
+                // Continue anyway, don't block installation
             })
     );
 });
@@ -110,7 +128,7 @@ self.addEventListener('fetch', (event) => {
             .catch(() => {
                 // Fallback for offline scenarios
                 if (event.request.destination === 'document') {
-                    return caches.match('/index.html');
+                    return caches.match('./index.html') || caches.match('./');
                 }
             })
     );
@@ -138,7 +156,9 @@ async function handlePeebleRequest(request) {
             
             const peebleClients = clients.filter(client => {
                 const clientUrl = new URL(client.url);
-                return clientUrl.origin === url.origin;
+                return clientUrl.origin === url.origin && 
+                       clientUrl.pathname.includes('peeble') || 
+                       clientUrl.pathname === url.pathname.split('/').slice(0, -1).join('/') + '/';
             });
             
             if (peebleClients.length > 0) {
@@ -159,9 +179,9 @@ async function handlePeebleRequest(request) {
                     timestamp: Date.now()
                 });
                 
-                // Return the existing app's response (prevent new window)
+                // Return a response that doesn't create a new window
                 return new Response('', {
-                    status: 204, // No Content - indicates successful but no new content
+                    status: 204, // No Content
                     headers: {
                         'Content-Type': 'text/plain',
                         'X-Peeble-Routed': 'true'
@@ -173,21 +193,21 @@ async function handlePeebleRequest(request) {
         }
         
         // No existing window or invalid parameters - serve the main app
-        const cachedApp = await caches.match('/index.html');
+        const cachedApp = await caches.match('./index.html') || await caches.match('./');
         if (cachedApp) {
             swLog(`📱 Serving cached app for Peeble URL`);
             return cachedApp;
         } else {
             swLog(`🌐 Fetching fresh app for Peeble URL`);
-            return fetch('/index.html');
+            return fetch('./index.html').catch(() => fetch('./'));
         }
         
     } catch (error) {
         swLog(`❌ Error handling Peeble request: ${error.message}`, 'error');
         
         // Fallback to regular app
-        const cachedApp = await caches.match('/index.html');
-        return cachedApp || fetch('/index.html');
+        const cachedApp = await caches.match('./index.html') || await caches.match('./');
+        return cachedApp || fetch('./index.html').catch(() => fetch('./'));
     }
 }
 
@@ -240,12 +260,6 @@ self.addEventListener('sync', (event) => {
 async function handleOfflineNfcOperation() {
     // Placeholder for future offline NFC functionality
     swLog('📱 Processing offline NFC operations...');
-    
-    // Could include:
-    // - Queue NFC writes for when online
-    // - Cache message data for offline access
-    // - Sync pending operations
-    
     return Promise.resolve();
 }
 
@@ -257,15 +271,14 @@ self.addEventListener('push', (event) => {
         
         const options = {
             body: data.body,
-            icon: '/manifest-icon-192.png',
-            badge: '/manifest-icon-192.png',
+            icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiByeD0iMjQiIGZpbGw9IiM1YTY3ZDgiLz4KPC9zdmc+',
+            badge: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiByeD0iMjQiIGZpbGw9IiM1YTY3ZDgiLz4KPC9zdmc+',
             tag: 'peeble-notification',
             requireInteraction: true,
             actions: [
                 {
                     action: 'open',
-                    title: 'Open Peeble',
-                    icon: '/manifest-icon-192.png'
+                    title: 'Open Peeble'
                 }
             ]
         };
@@ -293,7 +306,7 @@ self.addEventListener('notificationclick', (event) => {
                         }
                     }
                     // Open new window if not already open
-                    return clients.openWindow('/');
+                    return clients.openWindow('./');
                 })
         );
     }
