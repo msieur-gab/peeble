@@ -245,12 +245,15 @@
             }
 
             isSupported() {
-                return 'NDEFReader' in window;
+                return {
+                    read: 'NDEFReader' in window,
+                    write: 'NDEFWriter' in window
+                };
             }
 
             async startReader(onTagRead) {
-                if (!this.isSupported()) {
-                    throw new Error('Web NFC is not supported on this device.');
+                if (!this.isSupported().read) {
+                    throw new Error('Web NFC read is not supported on this device.');
                 }
                 if (this.readerActive) {
                     log('NFC reader is already active.', 'warning');
@@ -289,11 +292,23 @@
                     throw e;
                 }
             }
+            
+            async stopReader() {
+                 if (this.reader && this.readerActive) {
+                    // There's no explicit stop method, but a new scan call would override it.
+                    // For a cleaner UI, we just update the state.
+                    this.readerActive = false;
+                    log('NFC reader stopped.', 'info');
+                 }
+            }
+
 
             async writeUrl(url) {
-                if (!this.isSupported()) {
-                    throw new Error('Web NFC is not supported for writing on this device.');
+                // Defensive check to avoid ReferenceError
+                if (typeof NDEFWriter === 'undefined') {
+                    throw new Error('Web NFC write API is not available in this context.');
                 }
+
                 log(`Attempting to write URL to NFC tag: ${url}`, 'info');
                 try {
                     this.writer = new NDEFWriter();
@@ -418,6 +433,7 @@
                         scanSerialForm.classList.add('hidden');
                         recordingArea.classList.remove('hidden');
                         renderPlaylist(); // Render the playlist after we have the serial
+                        nfcService.stopReader();
                     } else {
                         log('No serial number found on the tag.', 'warning');
                         scanSerialBtn.disabled = false;
@@ -521,7 +537,13 @@
             log('Playlist successfully uploaded and URL generated!', 'success');
             
             // Enable NFC writing button
-            writeNfcBtn.disabled = false;
+            if (nfcService.isSupported().write) {
+                writeNfcBtn.disabled = false;
+                writeNfcBtn.textContent = 'Write to NFC Tag';
+            } else {
+                writeNfcBtn.disabled = true;
+                writeNfcBtn.textContent = 'NFC Write Not Supported';
+            }
         });
 
         writeNfcBtn.addEventListener('click', async () => {
@@ -658,6 +680,7 @@
             if (settings.length > 0) {
                 const apiKey = settings.find(s => s.key === 'apiKey')?.value || '';
                 const secret = settings.find(s => s.key === 'secret')?.value || '';
+                tagSerial = settings.find(s => s.key === 'serial')?.value || '';
                 
                 pinataApiKeyInput.value = apiKey;
                 pinataSecretInput.value = secret;
@@ -665,7 +688,11 @@
                 if (apiKey && secret) {
                     storageService = new StorageService(apiKey, secret);
                     apiSetupForm.classList.add('hidden');
-                    scanSerialForm.classList.remove('hidden');
+                    if (tagSerial) {
+                        recordingArea.classList.remove('hidden');
+                    } else {
+                        scanSerialForm.classList.remove('hidden');
+                    }
                 }
             }
 
