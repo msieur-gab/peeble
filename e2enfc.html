@@ -52,11 +52,17 @@
                 <div class="flex flex-col space-y-2 mb-4">
                     <input type="text" id="pinata-api-key" placeholder="Pinata API Key" class="flex-grow p-2 border border-gray-300 rounded-lg">
                     <input type="password" id="pinata-secret" placeholder="Pinata Secret API Key" class="flex-grow p-2 border border-gray-300 rounded-lg">
-                    <input type="text" id="tag-serial-input" placeholder="Mock Tag Serial (e.g., TEST-SERIAL-123)" class="flex-grow p-2 border border-gray-300 rounded-lg">
-                    <button id="set-credentials-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Set Credentials & Serial</button>
+                    <button id="set-credentials-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Set Credentials</button>
                 </div>
             </div>
             
+            <div id="scan-serial-form" class="hidden">
+                <p class="font-medium text-gray-800 mb-2 text-center" id="scan-serial-status">Tap a Peeble to get its serial number.</p>
+                <div class="flex justify-center">
+                    <button id="scan-serial-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Scan Peeble</button>
+                </div>
+            </div>
+
             <div id="recording-area" class="hidden">
                 <div class="text-center space-y-4">
                     <h2 class="text-2xl font-bold text-gray-800">Record a new message</h2>
@@ -131,7 +137,7 @@
             const logItem = document.createElement('div');
             logItem.className = 'flex space-x-2';
             let colorClass = 'text-gray-400';
-            let emoji = '�';
+            let emoji = '📋';
             if (type === 'success') { colorClass = 'text-green-400'; emoji = '✅'; } 
             else if (type === 'error') { colorClass = 'text-red-400'; emoji = '❌'; } 
             else if (type === 'warning') { colorClass = 'text-yellow-400'; emoji = '⚠️'; }
@@ -312,8 +318,12 @@
         const apiSetupForm = document.getElementById('api-setup-form');
         const pinataApiKeyInput = document.getElementById('pinata-api-key');
         const pinataSecretInput = document.getElementById('pinata-secret');
-        const tagSerialInput = document.getElementById('tag-serial-input');
         const setCredentialsBtn = document.getElementById('set-credentials-btn');
+
+        const scanSerialForm = document.getElementById('scan-serial-form');
+        const scanSerialStatus = document.getElementById('scan-serial-status');
+        const scanSerialBtn = document.getElementById('scan-serial-btn');
+
         const recordingArea = document.getElementById('recording-area');
         const recordBtn = document.getElementById('record-btn');
         const recordingTimer = document.getElementById('recording-timer');
@@ -381,20 +391,43 @@
         setCredentialsBtn.addEventListener('click', async () => {
             const apiKey = pinataApiKeyInput.value.trim();
             const secret = pinataSecretInput.value.trim();
-            const serial = tagSerialInput.value.trim();
-            if (apiKey && secret && serial) {
+            if (apiKey && secret) {
                 storageService = new StorageService(apiKey, secret);
-                tagSerial = serial;
                 
                 await dexieDB.settings.put({ key: 'apiKey', value: apiKey });
                 await dexieDB.settings.put({ key: 'secret', value: secret });
-                await dexieDB.settings.put({ key: 'serial', value: serial });
 
                 apiSetupForm.classList.add('hidden');
-                recordingArea.classList.remove('hidden');
-                log('Pinata credentials and tag serial set.', 'success');
+                scanSerialForm.classList.remove('hidden');
+                log('Pinata credentials set. Ready to scan Peeble serial.', 'success');
             } else {
                 log('Please fill in all fields.', 'warning');
+            }
+        });
+
+        scanSerialBtn.addEventListener('click', async () => {
+            scanSerialBtn.disabled = true;
+            scanSerialBtn.textContent = 'Scanning...';
+            try {
+                // Start a one-time NFC read
+                await nfcService.startReader((serial, url) => {
+                    if (serial) {
+                        tagSerial = serial;
+                        dexieDB.settings.put({ key: 'serial', value: serial });
+                        log(`Peeble serial captured: ${serial}`, 'success');
+                        scanSerialForm.classList.add('hidden');
+                        recordingArea.classList.remove('hidden');
+                        renderPlaylist(); // Render the playlist after we have the serial
+                    } else {
+                        log('No serial number found on the tag.', 'warning');
+                        scanSerialBtn.disabled = false;
+                        scanSerialBtn.textContent = 'Scan Peeble';
+                    }
+                });
+            } catch (e) {
+                log(`NFC scan failed: ${e.message}`, 'error');
+                scanSerialBtn.disabled = false;
+                scanSerialBtn.textContent = 'Scan Peeble';
             }
         });
 
@@ -625,17 +658,14 @@
             if (settings.length > 0) {
                 const apiKey = settings.find(s => s.key === 'apiKey')?.value || '';
                 const secret = settings.find(s => s.key === 'secret')?.value || '';
-                const serial = settings.find(s => s.key === 'serial')?.value || '';
                 
                 pinataApiKeyInput.value = apiKey;
                 pinataSecretInput.value = secret;
-                tagSerialInput.value = serial;
-                
-                if (apiKey && secret && serial) {
+
+                if (apiKey && secret) {
                     storageService = new StorageService(apiKey, secret);
-                    tagSerial = serial;
                     apiSetupForm.classList.add('hidden');
-                    recordingArea.classList.remove('hidden');
+                    scanSerialForm.classList.remove('hidden');
                 }
             }
 
