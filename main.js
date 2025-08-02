@@ -1,4 +1,4 @@
-// main.js - Complete version with simple PWA solution
+// main.js
 
 import { debugLog } from './services/utils.js';
 import { StorageService } from './services/storage.js';
@@ -121,70 +121,6 @@ window.forceAutoLoad = () => {
     stateManager.checkAndTriggerAutoLoad();
 };
 
-// =======================================================
-// === SIMPLE PWA NAVIGATION SOLUTION ===
-// =======================================================
-
-/**
- * ✅ SIMPLE: Setup minimal PWA navigation handling
- */
-function setupSimplePWANavigation() {
-    debugLog('🔧 PWA: Setting up simple PWA navigation...', 'info');
-    
-    // Listen for messages from service worker
-    if (navigator.serviceWorker) {
-        navigator.serviceWorker.addEventListener('message', event => {
-            if (event.data.type === 'NAVIGATE_TO_MESSAGE') {
-                debugLog('🔒 PWA: Received navigation message from service worker', 'success');
-                debugLog(`   MessageId: ${event.data.messageId}`, 'info');
-                debugLog(`   IpfsHash: ${event.data.ipfsHash}`, 'info');
-                
-                // Update URL without triggering navigation
-                const newUrl = `${window.location.origin}${window.location.pathname}#messageId=${event.data.messageId}&ipfsHash=${event.data.ipfsHash}`;
-                history.replaceState({}, '', newUrl);
-                
-                // Update state manager to handle the new message
-                if (window.stateManager) {
-                    stateManager.setState({
-                        messageId: event.data.messageId,
-                        ipfsHash: event.data.ipfsHash,
-                        appMode: 'READER',
-                        currentStep: 'waiting',
-                        statusMessage: '🔒 Loading message via PWA routing...'
-                    });
-                    stateManager.initializeFromUrl();
-                    
-                    debugLog('✅ PWA: Navigation completed successfully', 'success');
-                } else {
-                    debugLog('❌ PWA: State manager not available', 'error');
-                }
-            }
-        });
-    }
-    
-    // Simple hash change handler for direct URL access
-    window.addEventListener('hashchange', () => {
-        const params = new URLSearchParams(window.location.hash.substring(1));
-        if (params.has('messageId') && params.has('ipfsHash') && window.stateManager) {
-            debugLog('🔄 PWA: Hash change detected - processing Peeble message', 'info');
-            stateManager.setState({
-                messageId: params.get('messageId'),
-                ipfsHash: params.get('ipfsHash'),
-                appMode: 'READER',
-                currentStep: 'waiting',
-                statusMessage: '🔒 Processing hash change navigation...'
-            });
-            stateManager.initializeFromUrl();
-        }
-    });
-    
-    debugLog('✅ PWA: Simple navigation setup complete', 'success');
-}
-
-// =======================================================
-// === MAIN APPLICATION INITIALIZATION ===
-// =======================================================
-
 /**
  * Main application initialization logic.
  * Runs when the DOM is fully loaded.
@@ -192,7 +128,7 @@ function setupSimplePWANavigation() {
 document.addEventListener('DOMContentLoaded', () => {
     debugLog('DOM Content Loaded. Initializing Reactive Peeble App.');
 
-    // Add event listener to track ALL nfc-tag-scanned events
+    // FIX: Add event listener to track ALL nfc-tag-scanned events
     eventBus.subscribe('nfc-tag-scanned', (data) => {
         debugLog('🔍 MAIN.JS: nfc-tag-scanned event received!', 'info');
         debugLog(`   Serial: ${data.serial || 'NULL'}`, 'info');
@@ -325,33 +261,13 @@ document.addEventListener('DOMContentLoaded', () => {
         debugLog(`🔧 DEVELOPMENT MODE ACTIVE - API Key: ${pinataApiKey.substring(0, 8)}...`, 'warning');
     }
 
-    // Add helpful debug tips
+    // FIX: Add a helpful message for debugging NFC
     setTimeout(() => {
         debugLog('🔧 DEBUG TIP: If NFC scanning issues occur, try:', 'info');
         debugLog('   1. simulateNfcScan("TEST-123") to test event flow', 'info');
         debugLog('   2. debugState() to check current state', 'info');
         debugLog('   3. forceAutoLoad() to trigger manual load', 'info');
     }, 2000);
-
-    // ✅ CRITICAL: Initialize simple PWA navigation
-    setupSimplePWANavigation();
-    
-    // Check if we're in PWA mode
-    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                 window.navigator.standalone === true;
-    
-    if (isPWA) {
-        debugLog('📱 PWA: Running in PWA mode - NFC routing should work!', 'success');
-    } else {
-        debugLog('🌐 PWA: Running in browser mode - install PWA for better NFC routing', 'warning');
-    }
-    
-    // Check service worker status
-    if (navigator.serviceWorker) {
-        navigator.serviceWorker.ready.then(() => {
-            debugLog('🔧 PWA: Service worker is ready', 'success');
-        });
-    }
 });
 
 // For debugging purposes, expose key objects globally
