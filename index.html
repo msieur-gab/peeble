@@ -4,6 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Peeble - Connecting Hearts</title>
+
+    <!-- PWA Manifest -->
+<link rel="manifest" href="./manifest.json">
+
+<!-- PWA Meta Tags -->
+<meta name="theme-color" content="#5a67d8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Peeble">
+
+<!-- PWA Icons (create these files in ./icons/ directory) -->
+<link rel="apple-touch-icon" href="./icons/icon-152x152.png">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/icon-32x32.png">
+
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -70,5 +84,10 @@
 
     <!-- Main App Initialization -->
     <script type="module" src="main.js"></script>
+    <!-- GitHub Pages Configuration -->
+<script src="./github-pages-config.js"></script>
+
+<!-- PWA Manager -->
+<script src="./pwa-manager.js"></script>
 </body>
 </html>
