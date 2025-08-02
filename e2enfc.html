@@ -289,7 +289,8 @@
             isSupported() {
                 return {
                     read: 'NDEFReader' in window,
-                    write: 'NDEFWriter' in window
+                    // Check for both the new NDEFWriter and legacy NDEFReader.write()
+                    write: 'NDEFWriter' in window || ('NDEFReader' in window && typeof NDEFReader.prototype.write === 'function')
                 };
             }
 
@@ -346,17 +347,24 @@
 
 
             async writeUrl(url) {
-                // Defensive check to avoid ReferenceError
-                if (typeof NDEFWriter === 'undefined') {
-                    throw new Error('Web NFC write API is not available in this context.');
+                if (!this.isSupported().write) {
+                    throw new Error('Web NFC write is not supported on this device.');
                 }
 
                 log(`Attempting to write URL to NFC tag: ${url}`, 'info');
                 try {
-                    this.writer = new NDEFWriter();
-                    await this.writer.write({
-                        records: [{ recordType: "url", data: url }]
-                    });
+                    if ('NDEFWriter' in window) {
+                         this.writer = new NDEFWriter();
+                         await this.writer.write({
+                            records: [{ recordType: "url", data: url }]
+                         });
+                    } else if ('NDEFReader' in window && typeof NDEFReader.prototype.write === 'function') {
+                        // Fallback to legacy method
+                        const reader = new NDEFReader();
+                        await reader.write({
+                            records: [{ recordType: "url", data: url }]
+                        });
+                    }
                     log('URL successfully written to NFC tag.', 'success');
                 } catch (e) {
                     log(`Failed to write to NFC tag: ${e.message}`, 'error');
