@@ -161,6 +161,10 @@
                 this.secret = secret;
                 this.pinataApiUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
                 this.pinataGatewayUrl = 'https://gateway.pinata.cloud/ipfs/';
+                this.publicGateways = [
+                    'https://ipfs.io/ipfs/',
+                    'https://cloudflare-ipfs.com/ipfs/',
+                ];
             }
 
             setCredentials(apiKey, secret) {
@@ -189,12 +193,46 @@
                 return result.IpfsHash;
             }
 
-            async downloadFromIPFS(ipfsHash) {
-                log(`Downloading package from IPFS: ${ipfsHash}`, 'info');
-                const url = `${this.pinataGatewayUrl}${ipfsHash}`;
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
-                return await response.json();
+            async downloadMessagePackage(ipfsHash) {
+                log(`Starting secure download for hash: ${ipfsHash}`, 'info');
+                let lastError = null;
+
+                // Try Pinata gateway first (requires an API key but is often faster)
+                if (this.apiKey && this.secret) {
+                    try {
+                        const pinataUrl = `${this.pinataGatewayUrl}${ipfsHash}`;
+                        log(`Attempting download from Pinata gateway: ${pinataUrl}`, 'info');
+                        const response = await fetch(pinataUrl);
+                        if (response.ok) {
+                            log('Download successful from Pinata gateway.', 'success');
+                            return await response.json();
+                        }
+                        lastError = new Error(`Pinata gateway failed: ${response.statusText}`);
+                    } catch (e) {
+                        lastError = e;
+                        log(`Pinata gateway download failed: ${e.message}`, 'error');
+                    }
+                }
+                
+                // Fallback to public gateways
+                for (const gateway of this.publicGateways) {
+                    try {
+                        const url = `${gateway}${ipfsHash}`;
+                        log(`Attempting download from public gateway: ${url}`, 'info');
+                        const response = await fetch(url);
+                        if (response.ok) {
+                            log('Download successful from public gateway.', 'success');
+                            return await response.json();
+                        }
+                        lastError = new Error(`Public gateway failed: ${response.statusText}`);
+                    } catch (e) {
+                        lastError = e;
+                        log(`Public gateway download failed: ${e.message}`, 'error');
+                    }
+                }
+                
+                // If all attempts fail
+                throw new Error(`All download attempts failed. Last error: ${lastError.message}`);
             }
         }
 
@@ -630,11 +668,11 @@
                 const storage = new StorageService(null, null);
                 const encService = new EncryptionService();
 
-                const playlistManifest = await storage.downloadFromIPFS(playlistHash);
+                const playlistManifest = await storage.downloadMessagePackage(playlistHash);
 
                 for (const item of playlistManifest.messages) {
                     log(`Processing message: ${item.messageId}`, 'info');
-                    const encryptedPackage = await storage.downloadFromIPFS(item.ipfsHash);
+                    const encryptedPackage = await storage.downloadMessagePackage(item.ipfsHash);
                     const encryptedAudioBin = encService.base64ToBin(encryptedPackage.encryptedAudio);
                     const decryptionKey = await encService.deriveEncryptionKey(serial, encryptedPackage.timestamp);
                     const decryptedAudio = await encService.decryptFromBinary(encryptedAudioBin, decryptionKey);
