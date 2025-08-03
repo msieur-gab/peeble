@@ -132,10 +132,29 @@
         }
 
         class EncryptionService {
+            /**
+             * Converts a colon-separated hexadecimal string to a Uint8Array.
+             * @param {string} hexString The hexadecimal string (e.g., "04:80:69:42:c0:1c:90").
+             * @returns {Uint8Array} The byte array representation.
+             */
+            hexToUint8Array(hexString) {
+                const hexWithoutColons = hexString.replace(/:/g, '');
+                if (hexWithoutColons.length % 2 !== 0) {
+                    throw new Error('Invalid hex string format.');
+                }
+                const arrayBuffer = new Uint8Array(hexWithoutColons.length / 2);
+                for (let i = 0; i < hexWithoutColons.length / 2; i++) {
+                    arrayBuffer[i] = parseInt(hexWithoutColons.substring(i * 2, i * 2 + 2), 16);
+                }
+                return arrayBuffer;
+            }
+
             async deriveEncryptionKey(serial, timestamp) {
                 const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(timestamp.toString()), 'PBKDF2', false, ['deriveKey']);
+                const serialAsBytes = this.hexToUint8Array(serial);
+                
                 return crypto.subtle.deriveKey(
-                    { name: 'PBKDF2', salt: new TextEncoder().encode(serial), iterations: 100000, hash: 'SHA-256' },
+                    { name: 'PBKDF2', salt: serialAsBytes, iterations: 100000, hash: 'SHA-256' },
                     keyMaterial,
                     { name: 'AES-GCM', length: 256 },
                     false,
@@ -143,7 +162,6 @@
                 );
             }
             async decryptFromBinary(encryptedData, key) {
-                // The encryption key must be in the correct format for AES-GCM
                 if (key.type !== 'secret' || key.algorithm.name !== 'AES-GCM') {
                     throw new Error('Invalid decryption key format.');
                 }
