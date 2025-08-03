@@ -145,7 +145,7 @@
             const logItem = document.createElement('div');
             logItem.className = 'flex space-x-2';
             let colorClass = 'text-gray-400';
-            let emoji = '�';
+            let emoji = '📋';
             if (type === 'success') { colorClass = 'text-green-400'; emoji = '✅'; } 
             else if (type === 'error') { colorClass = 'text-red-400'; emoji = '❌'; } 
             else if (type === 'warning') { colorClass = 'text-yellow-400'; emoji = '⚠️'; }
@@ -199,10 +199,29 @@
         }
 
         class EncryptionService {
+            /**
+             * Converts a colon-separated hexadecimal string to a Uint8Array.
+             * @param {string} hexString The hexadecimal string (e.g., "04:80:69:42:c0:1c:90").
+             * @returns {Uint8Array} The byte array representation.
+             */
+            hexToUint8Array(hexString) {
+                const hexWithoutColons = hexString.replace(/:/g, '');
+                if (hexWithoutColons.length % 2 !== 0) {
+                    throw new Error('Invalid hex string format.');
+                }
+                const arrayBuffer = new Uint8Array(hexWithoutColons.length / 2);
+                for (let i = 0; i < hexWithoutColons.length / 2; i++) {
+                    arrayBuffer[i] = parseInt(hexWithoutColons.substring(i * 2, i * 2 + 2), 16);
+                }
+                return arrayBuffer;
+            }
+
             async deriveEncryptionKey(serial, timestamp) {
                 const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(timestamp.toString()), 'PBKDF2', false, ['deriveKey']);
+                const serialAsBytes = this.hexToUint8Array(serial);
+                
                 return crypto.subtle.deriveKey(
-                    { name: 'PBKDF2', salt: new TextEncoder().encode(serial), iterations: 100000, hash: 'SHA-256' },
+                    { name: 'PBKDF2', salt: serialAsBytes, iterations: 100000, hash: 'SHA-256' },
                     keyMaterial,
                     { name: 'AES-GCM', length: 256 },
                     false,
@@ -324,11 +343,6 @@
         const pinataSecretInput = document.getElementById('pinata-secret');
         const setCredentialsBtn = document.getElementById('set-credentials-btn');
 
-        const scanSerialForm = document.getElementById('scan-serial-form');
-        const scanSerialStatus = document.getElementById('scan-serial-status');
-        const scanSerialBtn = document.getElementById('scan-serial-btn');
-        const manualSerialInput = document.getElementById('manual-serial-input');
-        const manualSerialBtn = document.getElementById('manual-serial-btn');
         const serialModal = document.getElementById('serial-modal');
         const modalScanSerialBtn = document.getElementById('modal-scan-serial-btn');
         const modalManualSerialInput = document.getElementById('modal-manual-serial-input');
@@ -488,7 +502,6 @@
                  return;
             }
             
-            // Show the modal to get a serial number
             serialModal.classList.remove('hidden');
         });
 
@@ -536,7 +549,6 @@
             savePlaylistBtn.textContent = 'Encrypting & Uploading...';
             log('Starting playlist encryption and upload process...', 'info');
             
-            // Critical check to ensure a serial is available for encryption
             if (!tagSerial) {
                 log('FATAL ERROR: No serial number set. Cannot proceed with encryption.', 'error');
                 savePlaylistBtn.disabled = false;
@@ -585,7 +597,6 @@
                 renderSavedPlaylists();
             }
 
-            // Update UI
             writerSerialValue.textContent = tagSerial;
             writerResults.classList.remove('hidden');
             recordingArea.classList.add('hidden');
@@ -729,22 +740,17 @@
                 if (confirmLoad && confirmLoad.toLowerCase() === 'yes') {
                     await dexieDB.messages.clear();
                     
-                    // We load the serial from the saved playlist
                     tagSerial = playlist.tagSerial;
                     
-                    // Update UI state with the loaded serial
                     writerSerialValue.textContent = tagSerial;
                     
                     log(`Loaded playlist metadata for "${playlist.name}" associated with serial ${tagSerial}.`, 'success');
                     
-                    // The playlist URL is now in the results area for re-writing
                     writerResults.classList.remove('hidden');
                     recordingArea.classList.add('hidden');
                     nfcUrlDisplay.textContent = createSecureNfcUrl({ playlistHash: playlist.playlistHash });
                     
-                    // Update UI state
                     apiSetupForm.classList.add('hidden');
-                    // We don't need to show scanSerialForm anymore
                     recordingArea.classList.remove('hidden');
                     writerSerialDisplay.classList.remove('hidden');
                     
@@ -772,7 +778,6 @@
                     storageService = new StorageService(apiKey, secret);
                     apiSetupForm.classList.add('hidden');
                     recordingArea.classList.remove('hidden');
-                    // Tag serial is not needed at startup
                 }
             }
             renderPlaylist();

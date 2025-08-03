@@ -311,6 +311,12 @@
             prevBtn.disabled = index === 0 && !isPlaylistLooping;
             nextBtn.disabled = index === currentPlaylist.length - 1 && !isPlaylistLooping;
         }
+        
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+        }
 
         function updatePlayPauseButton() {
             if (isPlaying) {
@@ -332,7 +338,9 @@
                         ${isPlayingIcon}
                         <span class="font-medium text-gray-800">${track.title}</span>
                     </div>
-                    <audio src="${track.audioUrl}" controls class="hidden"></audio>
+                    <div class="text-gray-500 text-sm">
+                        <span>${formatTime(track.duration)}</span>
+                    </div>
                 `;
                 item.addEventListener('click', () => {
                     playTrack(index);
@@ -392,9 +400,18 @@
                     const audioBlob = new Blob([decryptedAudio], { type: 'audio/webm' });
                     const audioUrl = URL.createObjectURL(audioBlob);
 
+                    // Create a temporary audio element to get the duration
+                    const tempAudio = new Audio(audioUrl);
+                    const duration = await new Promise((resolve) => {
+                        tempAudio.onloadedmetadata = () => {
+                            resolve(tempAudio.duration);
+                        };
+                    });
+
                     currentPlaylist.push({
                         title: encryptedPackage.metadata.title,
-                        audioUrl: audioUrl
+                        audioUrl: audioUrl,
+                        duration: duration
                     });
                     log(`Decrypted and added message "${encryptedPackage.metadata.title}" to playlist.`, 'success');
                 }
