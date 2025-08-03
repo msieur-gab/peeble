@@ -34,10 +34,6 @@
                 <p class="font-medium" id="nfc-reader-status">NFC reader is not active.</p>
                 <button id="activate-reader-btn" class="bg-[#FF4F00] hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg mt-2">Activate NFC Reader</button>
             </div>
-            
-            <div id="scanned-serial-display" class="bg-orange-100 text-orange-800 p-2 rounded-lg text-sm mb-4 hidden">
-                Scanned Peeble Serial: <span id="scanned-serial-value" class="font-bold"></span>
-            </div>
 
             <div id="playlist-view" class="hidden">
                 <h2 class="text-2xl font-bold text-gray-800 mb-4">Playlist</h2>
@@ -143,17 +139,9 @@
                 );
             }
             async decryptFromBinary(encryptedData, key) {
-                // The encryption key must be in the correct format for AES-GCM
-                if (key.type !== 'secret' || key.algorithm.name !== 'AES-GCM') {
-                    throw new Error('Invalid decryption key format.');
-                }
                 const iv = encryptedData.slice(0, 12);
                 const encrypted = encryptedData.slice(12);
-                try {
-                    return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encrypted);
-                } catch (e) {
-                    throw new Error(`Decryption failed. This often indicates a key mismatch. Error: ${e.message}`);
-                }
+                return await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encrypted);
             }
             base64ToBin(base64) {
                 const binaryString = atob(base64);
@@ -240,8 +228,6 @@
         const loopTrackBtn = document.getElementById('loop-track-btn');
         const loopPlaylistBtn = document.getElementById('loop-playlist-btn');
         const currentTrackTitle = document.getElementById('current-track-title');
-        const scannedSerialDisplay = document.getElementById('scanned-serial-display');
-        const scannedSerialValue = document.getElementById('scanned-serial-value');
 
         // --- App State & Services ---
         const encryptionService = new EncryptionService();
@@ -261,6 +247,7 @@
                 return;
             }
 
+            // Handle playlist looping
             if (index >= currentPlaylist.length) {
                 if (isPlaylistLooping) {
                     index = 0;
@@ -289,9 +276,6 @@
             isPlaying = true;
             updatePlayPauseButton();
             updatePlaylistUI();
-            
-            prevBtn.disabled = index === 0 && !isPlaylistLooping;
-            nextBtn.disabled = index === currentPlaylist.length - 1 && !isPlaylistLooping;
         }
 
         function updatePlayPauseButton() {
@@ -329,14 +313,9 @@
                 await nfcService.startReader((serial, url) => {
                     log(`NFC tag scanned! Serial: ${serial}, URL: ${url}`, 'success');
                     if (serial && url) {
-                        // Display the scanned serial number for verification
-                        scannedSerialValue.textContent = serial;
-                        scannedSerialDisplay.classList.remove('hidden');
-                        
                         loadPlaylistFromNfc(serial, url);
                     } else {
                         log('NFC tag data is incomplete. Please ensure it is a Peeble tag.', 'warning');
-                        scannedSerialDisplay.classList.add('hidden');
                     }
                 });
                 nfcReaderStatus.textContent = 'NFC reader is active. Tap a Peeble to scan.';

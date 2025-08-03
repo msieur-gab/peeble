@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peeble Playlist Writer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie@3.2.3/dist/dexie.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .recording.animate-pulse {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        #nfc-url-display {
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl transform transition-all duration-300">
+        <div class="flex items-center space-x-4 mb-6">
+            <div class="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v20m-5-5l5 5 5-5M12 2L7 7m5-5l5 5"/>
+                    <path d="M12 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+                </svg>
+            </div>
+            <div>
+                <h1 id="app-title" class="text-3xl font-bold text-gray-800">Peeble Playlist Writer</h1>
+                <p id="app-subtitle" class="text-gray-500 mt-1">Create a playlist of voice recordings and music for a Peeble</p>
+            </div>
+        </div>
+
+        <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6 shadow-inner">
+            <p class="text-sm"><span class="font-bold">Note:</span> This app writes messages to a simulated NFC tag. A real app would use the Web NFC API.</p>
+            <p class="text-sm mt-2 font-bold">1. Set Pinata credentials. 2. Record or upload clips. 3. Finalize playlist by setting a serial number.</p>
+        </div>
+
+        <!-- Pinata Credentials -->
+        <div id="api-setup-form">
+            <p class="font-medium text-gray-800 mb-2">Pinata IPFS Credentials</p>
+            <div class="flex flex-col space-y-2 mb-4">
+                <input type="text" id="pinata-api-key" placeholder="Pinata API Key" class="flex-grow p-2 border border-gray-300 rounded-lg">
+                <input type="password" id="pinata-secret" placeholder="Pinata Secret API Key" class="flex-grow p-2 border border-gray-300 rounded-lg">
+                <button id="set-credentials-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Set Credentials</button>
+            </div>
+        </div>
+        
+        <div id="recording-area" class="hidden">
+            <div class="text-center space-y-4">
+                <h2 class="text-2xl font-bold text-gray-800">Add a new message or song</h2>
+                <div id="writer-serial-display" class="bg-indigo-100 text-indigo-800 p-2 rounded-lg text-sm mb-4">
+                    Current Peeble Serial: <span id="writer-serial-value" class="font-bold">Not Set</span>
+                </div>
+                
+                <input type="text" id="message-title-input" placeholder="Message Title (e.g., 'A Song for You')" class="w-full p-3 border-2 border-gray-300 rounded-lg text-lg focus:outline-none focus:border-indigo-500">
+                
+                <div id="recording-controls" class="space-y-4">
+                    <p class="text-gray-500">Record a new clip:</p>
+                    <button id="record-btn" class="w-24 h-24 rounded-full bg-red-500 text-white text-3xl flex items-center justify-center mx-auto shadow-xl transition-all duration-200 hover:scale-110">
+                        <svg id="record-icon" xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 8v8M8 12h8" />
+                        </svg>
+                    </button>
+                    <p id="recording-timer" class="text-gray-500 font-medium hidden">00:00</p>
+                </div>
+
+                <div class="my-6 text-gray-400 font-bold">-- OR --</div>
+
+                <div id="upload-controls" class="space-y-4">
+                    <p class="text-gray-500">Upload a music file:</p>
+                    <input type="file" id="music-file-input" accept="audio/*" class="w-full text-gray-700 bg-gray-100 border border-gray-300 rounded-lg p-2 cursor-pointer">
+                </div>
+
+                <div id="audio-preview-container" class="mt-4 hidden">
+                    <audio id="audio-preview" controls class="w-full"></audio>
+                </div>
+
+                <button id="save-clip-btn" class="mt-6 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg hidden">Save to Playlist</button>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">Current Playlist</h3>
+                <div id="playlist-container" class="space-y-2"></div>
+                <div class="flex justify-between items-center">
+                    <button id="clear-playlist-btn" class="text-red-500 hover:underline text-sm font-medium">Clear Playlist</button>
+                    <button id="save-playlist-btn" class="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors duration-300 hidden">
+                        Save & Encrypt Playlist
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- New modal for setting serial number -->
+        <div id="serial-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <h3 class="text-2xl font-bold text-gray-800 mb-4 text-center">Set Peeble Serial</h3>
+                <p class="text-gray-600 mb-4 text-center">Scan a Peeble or enter the serial number manually to finalize your playlist.</p>
+                <div class="flex flex-col justify-center space-y-4">
+                    <button id="modal-scan-serial-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Scan Peeble (NFC)</button>
+                    <div class="my-2 text-gray-400 font-bold text-center">-- OR --</div>
+                    <input type="text" id="modal-manual-serial-input" placeholder="Enter Peeble Serial Manually" class="p-2 border border-gray-300 rounded-lg">
+                    <button id="modal-manual-serial-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">Set Serial Manually</button>
+                    <button id="modal-cancel-btn" class="mt-4 text-gray-500 hover:underline">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="writer-results" class="hidden">
+            <h2 class="text-2xl font-bold text-gray-800">Playlist Saved!</h2>
+            <p class="text-gray-500 mt-2">Tap a blank Peeble to write the URL:</p>
+            <div class="mt-4 p-4 bg-gray-100 rounded-lg text-sm text-gray-800 break-all flex justify-between items-center">
+                <pre id="nfc-url-display" class="flex-grow"></pre>
+                <button id="write-nfc-btn" class="ml-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg">Write to NFC Tag</button>
+            </div>
+            <div class="mt-4">
+                <button id="writer-start-over-btn" class="w-full mt-4 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg">Start Over</button>
+            </div>
+        </div>
+
+        <!-- New section for saved playlists -->
+        <div id="saved-playlists-section" class="mt-8 hidden">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Saved Playlists</h3>
+            <div id="saved-playlists-container" class="space-y-2"></div>
+        </div>
+
+        <div class="mt-8 bg-gray-900 text-white rounded-lg p-4 shadow-lg overflow-y-auto max-h-60">
+            <h3 class="font-mono text-xs text-green-400 mb-2">>> LIVE LOG <<</h3>
+            <div id="log-container" class="font-mono text-xs space-y-1"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Utility Functions ---
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.className = 'flex space-x-2';
+            let colorClass = 'text-gray-400';
+            let emoji = '�';
+            if (type === 'success') { colorClass = 'text-green-400'; emoji = '✅'; } 
+            else if (type === 'error') { colorClass = 'text-red-400'; emoji = '❌'; } 
+            else if (type === 'warning') { colorClass = 'text-yellow-400'; emoji = '⚠️'; }
+            logItem.innerHTML = `<span class="text-gray-600">${timestamp}</span><span class="${colorClass}">${emoji} ${message}</span>`;
+            logContainer.appendChild(logItem);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function createSecureNfcUrl({ playlistHash }) {
+            const baseUrl = window.location.origin + window.location.pathname;
+            return `${baseUrl}#playlistHash=${playlistHash}`;
+        }
+        
+        class StorageService {
+            constructor(apiKey, secret) {
+                this.apiKey = apiKey;
+                this.secret = secret;
+                this.pinataApiUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
+                this.pinataGatewayUrl = 'https://gateway.pinata.cloud/ipfs/';
+                this.publicGateways = [
+                    'https://ipfs.io/ipfs/',
+                    'https://cloudflare-ipfs.com/ipfs/',
+                ];
+            }
+
+            setCredentials(apiKey, secret) {
+                this.apiKey = apiKey;
+                this.secret = secret;
+            }
+
+            async uploadMessagePackage(messagePackage) {
+                log('Uploading encrypted package to IPFS...', 'info');
+                const formData = new FormData();
+                const jsonString = JSON.stringify(messagePackage);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                formData.append('file', blob, 'package.json');
+                const metadata = JSON.stringify({ name: 'package.json' });
+                formData.append('pinataMetadata', metadata);
+                const response = await fetch(this.pinataApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'pinata_api_key': this.apiKey,
+                        'pinata_secret_api_key': this.secret
+                    },
+                    body: formData
+                });
+                if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+                const result = await response.json();
+                return result.IpfsHash;
+            }
+        }
+
+        class EncryptionService {
+            async deriveEncryptionKey(serial, timestamp) {
+                const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(timestamp.toString()), 'PBKDF2', false, ['deriveKey']);
+                return crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt: new TextEncoder().encode(serial), iterations: 100000, hash: 'SHA-256' },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            }
+            async encryptDataToBinary(data, key) {
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, data);
+                const result = new Uint8Array(iv.length + encrypted.byteLength);
+                result.set(iv);
+                result.set(new Uint8Array(encrypted), iv.length);
+                return result;
+            }
+            binToBase64(binary) {
+                let binaryString = '';
+                const len = binary.byteLength;
+                for (let i = 0; i < len; i++) {
+                    binaryString += String.fromCharCode(binary[i]);
+                }
+                return btoa(binaryString);
+            }
+        }
+        
+        class NFCService {
+            constructor() {
+                this.reader = null;
+                this.writer = null;
+                this.readerActive = false;
+            }
+
+            isSupported() {
+                return {
+                    read: 'NDEFReader' in window,
+                    write: 'NDEFWriter' in window || ('NDEFReader' in window && typeof NDEFReader.prototype.write === 'function')
+                };
+            }
+
+            async startReader(onTagRead) {
+                if (!this.isSupported().read) {
+                    throw new Error('Web NFC read is not supported on this device.');
+                }
+                if (this.readerActive) {
+                    log('NFC reader is already active.', 'warning');
+                    return;
+                }
+                log('Starting NFC reader...', 'info');
+                try {
+                    this.reader = new NDEFReader();
+                    this.reader.onreading = (event) => {
+                        const serial = event.serialNumber;
+                        let url = null;
+                        if (event.message && event.message.records) {
+                            for (const record of event.message.records) {
+                                if (record.recordType === 'url') {
+                                    const decoder = new TextDecoder();
+                                    url = decoder.decode(record.data);
+                                    break;
+                                }
+                            }
+                        }
+                        onTagRead(serial, url);
+                    };
+
+                    this.reader.onreadingerror = (e) => {
+                        log(`NFC reading error: ${e.message}`, 'error');
+                        this.readerActive = false;
+                    };
+
+                    await this.reader.scan();
+                    this.readerActive = true;
+                    log('NFC reader activated. Tap a Peeble to scan.', 'success');
+                } catch (e) {
+                    log(`Failed to start NFC reader: ${e.message}`, 'error');
+                    this.readerActive = false;
+                    throw e;
+                }
+            }
+            
+            async stopReader() {
+                 if (this.reader && this.readerActive) {
+                    this.readerActive = false;
+                    log('NFC reader stopped.', 'info');
+                 }
+            }
+
+            async writeUrl(url) {
+                if (!this.isSupported().write) {
+                    throw new Error('Web NFC write is not supported on this device.');
+                }
+
+                log(`Attempting to write URL to NFC tag: ${url}`, 'info');
+                try {
+                    if ('NDEFWriter' in window) {
+                         this.writer = new NDEFWriter();
+                         await this.writer.write({
+                            records: [{ recordType: "url", data: url }]
+                         });
+                    } else if ('NDEFReader' in window && typeof NDEFReader.prototype.write === 'function') {
+                        const reader = new NDEFReader();
+                        await reader.write({
+                            records: [{ recordType: "url", data: url }]
+                        });
+                    }
+                    log('URL successfully written to NFC tag.', 'success');
+                } catch (e) {
+                    log(`Failed to write to NFC tag: ${e.message}`, 'error');
+                    throw e;
+                }
+            }
+        }
+
+        // --- UI Elements ---
+        const logContainer = document.getElementById('log-container');
+        const writerApp = document.getElementById('writer-app');
+        
+        const apiSetupForm = document.getElementById('api-setup-form');
+        const pinataApiKeyInput = document.getElementById('pinata-api-key');
+        const pinataSecretInput = document.getElementById('pinata-secret');
+        const setCredentialsBtn = document.getElementById('set-credentials-btn');
+
+        const scanSerialForm = document.getElementById('scan-serial-form');
+        const scanSerialStatus = document.getElementById('scan-serial-status');
+        const scanSerialBtn = document.getElementById('scan-serial-btn');
+        const manualSerialInput = document.getElementById('manual-serial-input');
+        const manualSerialBtn = document.getElementById('manual-serial-btn');
+        const serialModal = document.getElementById('serial-modal');
+        const modalScanSerialBtn = document.getElementById('modal-scan-serial-btn');
+        const modalManualSerialInput = document.getElementById('modal-manual-serial-input');
+        const modalManualSerialBtn = document.getElementById('modal-manual-serial-btn');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+
+
+        const recordingArea = document.getElementById('recording-area');
+        const writerSerialDisplay = document.getElementById('writer-serial-display');
+        const writerSerialValue = document.getElementById('writer-serial-value');
+        const messageTitleInput = document.getElementById('message-title-input');
+        
+        const recordBtn = document.getElementById('record-btn');
+        const recordingTimer = document.getElementById('recording-timer');
+        const musicFileInput = document.getElementById('music-file-input');
+        const audioPreviewContainer = document.getElementById('audio-preview-container');
+        const audioPreview = document.getElementById('audio-preview');
+        const saveClipBtn = document.getElementById('save-clip-btn');
+
+        const playlistContainer = document.getElementById('playlist-container');
+        const savePlaylistBtn = document.getElementById('save-playlist-btn');
+        const writerResults = document.getElementById('writer-results');
+        const nfcUrlDisplay = document.getElementById('nfc-url-display');
+        const writeNfcBtn = document.getElementById('write-nfc-btn');
+        const writerStartOverBtn = document.getElementById('writer-start-over-btn');
+        const clearPlaylistBtn = document.getElementById('clear-playlist-btn');
+
+        const savedPlaylistsSection = document.getElementById('saved-playlists-section');
+        const savedPlaylistsContainer = document.getElementById('saved-playlists-container');
+
+        // --- App State & Services ---
+        const dexieDB = new Dexie('PeeblePlaylistDB');
+        dexieDB.version(2).stores({ 
+            settings: 'key, value',
+            messages: '++id, title, audioBlob',
+            finalizedPlaylists: '++id, name, playlistHash, tagSerial, timestamp'
+        });
+        const encryptionService = new EncryptionService();
+        const nfcService = new NFCService();
+        let storageService = null;
+        let tagSerial = null;
+        let mediaRecorder;
+        let audioChunks = [];
+        let currentAudioBlob = null;
+        let recordingStartTime;
+        let recordingInterval;
+
+        // --- Writer App Logic ---
+        setCredentialsBtn.addEventListener('click', async () => {
+            const apiKey = pinataApiKeyInput.value.trim();
+            const secret = pinataSecretInput.value.trim();
+            if (apiKey && secret) {
+                storageService = new StorageService(apiKey, secret);
+                
+                await dexieDB.settings.put({ key: 'apiKey', value: apiKey });
+                await dexieDB.settings.put({ key: 'secret', value: secret });
+
+                apiSetupForm.classList.add('hidden');
+                recordingArea.classList.remove('hidden');
+                log('Pinata credentials set. You can now start creating your playlist.', 'success');
+            } else {
+                log('Please fill in all fields.', 'warning');
+            }
+        });
+
+        recordBtn.addEventListener('click', async () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); return; }
+            if (!messageTitleInput.value.trim()) { log('Please add a title for this message before recording.', 'warning'); messageTitleInput.focus(); return; }
+
+            musicFileInput.value = null;
+            audioPreviewContainer.classList.add('hidden');
+            currentAudioBlob = null;
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+                mediaRecorder.onstop = () => {
+                    currentAudioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const audioUrl = URL.createObjectURL(currentAudioBlob);
+                    audioPreview.src = audioUrl;
+                    audioPreviewContainer.classList.remove('hidden');
+                    saveClipBtn.classList.remove('hidden');
+                    stream.getTracks().forEach(track => track.stop());
+                    recordBtn.disabled = false;
+                    recordBtn.classList.remove('bg-red-700', 'recording');
+                    recordBtn.innerHTML = '⏹️';
+                    log('Recording finished. Audio preview ready.', 'success');
+                    clearInterval(recordingInterval);
+                };
+                mediaRecorder.start();
+                recordingStartTime = Date.now();
+                recordingTimer.textContent = '00:00';
+                recordingTimer.classList.remove('hidden');
+                recordBtn.classList.add('bg-red-700', 'recording');
+                recordBtn.innerHTML = '⏹️';
+                log('Recording started.', 'info');
+                recordingInterval = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    recordingTimer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                }, 1000);
+            } catch (err) { log(`Error accessing microphone: ${err.message}`, 'error'); }
+        });
+
+        musicFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                if (!file.type.startsWith('audio/')) {
+                    log('Please select a valid audio file.', 'warning');
+                    return;
+                }
+                if (!messageTitleInput.value.trim()) { log('Please add a title for this song before uploading.', 'warning'); messageTitleInput.focus(); return; }
+
+                if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); }
+                
+                currentAudioBlob = file;
+                const audioUrl = URL.createObjectURL(file);
+                audioPreview.src = audioUrl;
+                audioPreviewContainer.classList.remove('hidden');
+                saveClipBtn.classList.remove('hidden');
+                recordingTimer.classList.add('hidden');
+                log(`Uploaded music file: ${file.name}`, 'success');
+            } else {
+                currentAudioBlob = null;
+                audioPreviewContainer.classList.add('hidden');
+                saveClipBtn.classList.add('hidden');
+            }
+        });
+
+        saveClipBtn.addEventListener('click', async () => {
+            if (!currentAudioBlob) { log('No audio clip to save.', 'warning'); return; }
+            const title = messageTitleInput.value.trim() || 'Untitled Message';
+            try {
+                const id = await dexieDB.messages.add({ title: title, audioBlob: currentAudioBlob });
+                log(`Message "${title}" saved to local database with ID: ${id}`, 'success');
+                renderPlaylist();
+                messageTitleInput.value = '';
+                audioPreviewContainer.classList.add('hidden');
+                saveClipBtn.classList.add('hidden');
+                musicFileInput.value = null;
+                currentAudioBlob = null;
+            } catch (err) { log(`Failed to save to IndexedDB: ${err.message}`, 'error'); }
+        });
+
+        savePlaylistBtn.addEventListener('click', async () => {
+            if (!storageService) { 
+                log('Pinata credentials not set.', 'error'); 
+                return; 
+            }
+            
+            const allMessages = await dexieDB.messages.toArray();
+            if (allMessages.length === 0) {
+                 log('No clips in the current playlist to save.', 'warning');
+                 return;
+            }
+            
+            // Show the modal to get a serial number
+            serialModal.classList.remove('hidden');
+        });
+
+        modalCancelBtn.addEventListener('click', () => {
+            serialModal.classList.add('hidden');
+        });
+
+        modalScanSerialBtn.addEventListener('click', async () => {
+            modalScanSerialBtn.disabled = true;
+            modalScanSerialBtn.textContent = 'Scanning...';
+            try {
+                await nfcService.startReader(async (serial, url) => {
+                    nfcService.stopReader();
+                    if (serial) {
+                        tagSerial = serial;
+                        log(`Peeble serial captured: ${serial}`, 'success');
+                        await finalizePlaylist();
+                    } else {
+                        log('No serial number found on the tag.', 'warning');
+                        modalScanSerialBtn.disabled = false;
+                        modalScanSerialBtn.textContent = 'Scan Peeble (NFC)';
+                    }
+                });
+            } catch (e) {
+                log(`NFC scan failed: ${e.message}`, 'error');
+                modalScanSerialBtn.disabled = false;
+                modalScanSerialBtn.textContent = 'Scan Peeble (NFC)';
+            }
+        });
+        
+        modalManualSerialBtn.addEventListener('click', async () => {
+            const serial = modalManualSerialInput.value.trim();
+            if (serial) {
+                tagSerial = serial;
+                log(`Manual Peeble serial set: ${serial}`, 'success');
+                await finalizePlaylist();
+            } else {
+                log('Please enter a valid serial number.', 'warning');
+            }
+        });
+
+        async function finalizePlaylist() {
+            serialModal.classList.add('hidden');
+            savePlaylistBtn.disabled = true;
+            savePlaylistBtn.textContent = 'Encrypting & Uploading...';
+            log('Starting playlist encryption and upload process...', 'info');
+            
+            // Critical check to ensure a serial is available for encryption
+            if (!tagSerial) {
+                log('FATAL ERROR: No serial number set. Cannot proceed with encryption.', 'error');
+                savePlaylistBtn.disabled = false;
+                savePlaylistBtn.textContent = 'Save & Encrypt Playlist';
+                return;
+            }
+
+            const allMessages = await dexieDB.messages.toArray();
+            const playlistManifest = { version: 'playlist-v1', messages: [] };
+            const encService = new EncryptionService();
+
+            for (const message of allMessages) {
+                try {
+                    const timestamp = Date.now();
+                    const encryptionKey = await encService.deriveEncryptionKey(tagSerial, timestamp);
+                    const audioBuffer = await message.audioBlob.arrayBuffer();
+                    const encryptedAudio = await encService.encryptDataToBinary(audioBuffer, encryptionKey);
+                    
+                    const messagePackage = {
+                        messageId: `PBL-${message.id}`,
+                        timestamp: timestamp,
+                        encryptedAudio: encService.binToBase64(encryptedAudio),
+                        metadata: { title: message.title }
+                    };
+                    const ipfsHash = await storageService.uploadMessagePackage(messagePackage);
+                    playlistManifest.messages.push({ messageId: messagePackage.messageId, ipfsHash: ipfsHash });
+                    log(`Uploaded clip "${message.title}" (ID: ${message.id})`, 'success');
+                } catch (err) {
+                    log(`Failed to process message "${message.title}": ${err.message}`, 'error');
+                }
+            }
+            
+            log('All clips uploaded. Now uploading the final playlist manifest...', 'info');
+            const finalManifestHash = await storageService.uploadMessagePackage(playlistManifest);
+            const finalNfcUrl = createSecureNfcUrl({ playlistHash: finalManifestHash });
+
+            const playlistName = prompt('Enter a name for this playlist:', `Playlist for ${tagSerial}`);
+            if (playlistName) {
+                await dexieDB.finalizedPlaylists.add({
+                    name: playlistName,
+                    playlistHash: finalManifestHash,
+                    tagSerial: tagSerial,
+                    timestamp: Date.now()
+                });
+                log(`Playlist "${playlistName}" saved to local history.`, 'success');
+                renderSavedPlaylists();
+            }
+
+            // Update UI
+            writerSerialValue.textContent = tagSerial;
+            writerResults.classList.remove('hidden');
+            recordingArea.classList.add('hidden');
+            nfcUrlDisplay.textContent = finalNfcUrl;
+            log('Playlist successfully uploaded and URL generated!', 'success');
+            
+            if (nfcService.isSupported().write) {
+                writeNfcBtn.disabled = false;
+                writeNfcBtn.textContent = 'Write to NFC Tag';
+            } else {
+                writeNfcBtn.disabled = true;
+                writeNfcBtn.textContent = 'NFC Write Not Supported';
+            }
+        }
+
+        writeNfcBtn.addEventListener('click', async () => {
+            const url = nfcUrlDisplay.textContent;
+            if (!url) {
+                log('No URL to write. Please save a playlist first.', 'warning');
+                return;
+            }
+            writeNfcBtn.disabled = true;
+            writeNfcBtn.textContent = 'Tap Tag to Verify & Write...';
+            try {
+                await nfcService.startReader((scannedSerial, readUrl) => {
+                    nfcService.stopReader();
+                    if (scannedSerial === tagSerial) {
+                        log('Serial match confirmed. Writing URL to tag.', 'success');
+                        nfcService.writeUrl(url).then(() => {
+                             writeNfcBtn.textContent = 'Write Successful!';
+                        }).catch((e) => {
+                             log(`NFC write failed: ${e.message}`, 'error');
+                             writeNfcBtn.textContent = 'Write Failed';
+                             writeNfcBtn.disabled = false;
+                        });
+                    } else {
+                        log(`SECURITY ERROR: Scanned serial "${scannedSerial}" does not match original serial "${tagSerial}".`, 'error');
+                        log('Write cancelled. Please use the original Peeble.', 'error');
+                        writeNfcBtn.textContent = 'Serial Mismatch - Try Again';
+                        writeNfcBtn.disabled = false;
+                    }
+                });
+            } catch (e) {
+                log(`NFC scan failed: ${e.message}`, 'error');
+                writeNfcBtn.textContent = 'Write Failed';
+                writeNfcBtn.disabled = false;
+            }
+        });
+
+        writerStartOverBtn.addEventListener('click', async () => {
+            await dexieDB.messages.clear();
+            writerResults.classList.add('hidden');
+            apiSetupForm.classList.remove('hidden');
+            recordingArea.classList.add('hidden');
+            savePlaylistBtn.classList.add('hidden');
+            renderPlaylist();
+            log('Writer app reset.', 'info');
+        });
+
+        clearPlaylistBtn.addEventListener('click', async () => {
+            await dexieDB.messages.clear();
+            log('Playlist cleared from local database.', 'info');
+            renderPlaylist();
+        });
+
+        async function renderPlaylist() {
+            playlistContainer.innerHTML = '';
+            const messages = await dexieDB.messages.toArray();
+            if (messages.length === 0) {
+                playlistContainer.innerHTML = '<p class="text-gray-400 italic text-center">No messages added yet.</p>';
+                savePlaylistBtn.classList.add('hidden');
+                return;
+            }
+            messages.forEach(message => {
+                const item = document.createElement('div');
+                item.className = 'bg-gray-50 p-3 rounded-lg flex items-center justify-between shadow-sm';
+                item.innerHTML = `<span class="font-medium text-gray-800">${message.title}</span>`;
+                playlistContainer.appendChild(item);
+            });
+            savePlaylistBtn.classList.remove('hidden');
+        }
+
+        async function renderSavedPlaylists() {
+            savedPlaylistsContainer.innerHTML = '';
+            const playlists = await dexieDB.finalizedPlaylists.toArray();
+            if (playlists.length === 0) {
+                savedPlaylistsSection.classList.add('hidden');
+                return;
+            }
+            savedPlaylistsSection.classList.remove('hidden');
+            playlists.forEach(playlist => {
+                const item = document.createElement('div');
+                item.className = 'bg-gray-50 p-3 rounded-lg flex items-center justify-between shadow-sm';
+                const date = new Date(playlist.timestamp).toLocaleDateString();
+                item.innerHTML = `
+                    <div class="flex-grow">
+                        <p class="font-medium text-gray-800">${playlist.name}</p>
+                        <p class="text-xs text-gray-500 mt-1">Serial: ${playlist.tagSerial} | Saved: ${date}</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button data-id="${playlist.id}" class="load-playlist-btn bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-1 px-3 rounded-lg text-sm">Load</button>
+                        <button data-id="${playlist.id}" class="delete-playlist-btn text-red-500 hover:text-red-700 text-sm font-bold">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                <line x1="10" y1="11" x2="10" y2="17" />
+                                <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+                savedPlaylistsContainer.appendChild(item);
+            });
+            
+            document.querySelectorAll('.delete-playlist-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const id = parseInt(e.currentTarget.dataset.id);
+                    await dexieDB.finalizedPlaylists.delete(id);
+                    log(`Deleted playlist with ID: ${id}`, 'info');
+                    renderSavedPlaylists();
+                });
+            });
+
+            document.querySelectorAll('.load-playlist-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const id = parseInt(e.currentTarget.dataset.id);
+                    await loadSavedPlaylist(id);
+                });
+            });
+        }
+        
+        async function loadSavedPlaylist(id) {
+             try {
+                const playlist = await dexieDB.finalizedPlaylists.get(id);
+                if (!playlist) {
+                    log('Playlist not found in local database.', 'error');
+                    return;
+                }
+                
+                const confirmLoad = prompt(`Are you sure you want to load "${playlist.name}"? This will clear your current playlist. Type "yes" to confirm.`);
+                if (confirmLoad && confirmLoad.toLowerCase() === 'yes') {
+                    await dexieDB.messages.clear();
+                    
+                    // We load the serial from the saved playlist
+                    tagSerial = playlist.tagSerial;
+                    
+                    // Update UI state with the loaded serial
+                    writerSerialValue.textContent = tagSerial;
+                    
+                    log(`Loaded playlist metadata for "${playlist.name}" associated with serial ${tagSerial}.`, 'success');
+                    
+                    // The playlist URL is now in the results area for re-writing
+                    writerResults.classList.remove('hidden');
+                    recordingArea.classList.add('hidden');
+                    nfcUrlDisplay.textContent = createSecureNfcUrl({ playlistHash: playlist.playlistHash });
+                    
+                    // Update UI state
+                    apiSetupForm.classList.add('hidden');
+                    // We don't need to show scanSerialForm anymore
+                    recordingArea.classList.remove('hidden');
+                    writerSerialDisplay.classList.remove('hidden');
+                    
+                    renderPlaylist();
+                } else {
+                    log('Playlist load cancelled.', 'info');
+                }
+             } catch (err) {
+                 log(`Error loading playlist: ${err.message}`, 'error');
+             }
+        }
+
+
+        // --- Main Initialization ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            const settings = await dexieDB.settings.toArray();
+            if (settings.length > 0) {
+                const apiKey = settings.find(s => s.key === 'apiKey')?.value || '';
+                const secret = settings.find(s => s.key === 'secret')?.value || '';
+                
+                pinataApiKeyInput.value = apiKey;
+                pinataSecretInput.value = secret;
+
+                if (apiKey && secret) {
+                    storageService = new StorageService(apiKey, secret);
+                    apiSetupForm.classList.add('hidden');
+                    recordingArea.classList.remove('hidden');
+                    // Tag serial is not needed at startup
+                }
+            }
+            renderPlaylist();
+            renderSavedPlaylists();
+        });
+    </script>
+</body>
+</html>
